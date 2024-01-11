@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import AddCategoryView, AddDishView, AddDishesProductsView, AddDishesVariantsView, AddGroupView, CategoriesView, CreateBill, CreateNotification, DeactivateUser, DeleteGroupView, DeleteOrderView, EditUserView, NotificationsView, RegisterAPIView, LoginAPIView, RemoveUser, UserAPIView, \
+from .views import AddCategoryView, AddDishView, AddDishesProductsView, AddDishesVariantsView, AddGroupView, CategoriesView, CreateBill, CreateNotification, DeactivateUser, DeleteCategoty, DeleteDish, DeleteDishesProducts, DeleteDishesVariants, DeleteGroupView, DeleteOrderView, EditUserView, NotificationsView, RegisterAPIView, LoginAPIView, RemoveUser, UpdateCategoty, UpdateDish, UpdateDishesProducts, UpdateDishesVariants, UserAPIView, \
     RefreshApiView, LogoutApiView, DishesView, DishesProductsView, DishesVariantsView, OrdersDetailsView, \
     BillsView, KitchenOrdersView, UpdateDoneStatusAPIView, KitchenOrderCreateView, OrdershasDishesView, KitchenOrderStartView, \
     AddPermissionToGroup, AddPermissionToUser, RemovePermissionFromGroup, RemovePermissionFromUser, PermissionsView, \
@@ -44,4 +44,12 @@ urlpatterns = [
     path('AddCategory', AddCategoryView.as_view()),
     path('AddDishesProducts', AddDishesProductsView.as_view()),
     path('AddDishesVariants', AddDishesVariantsView.as_view()),
+    path('DeleteDish', DeleteDish.as_view()),
+    path('DeleteCategory', DeleteCategoty.as_view()),
+    path('DeleteDishesProducts', DeleteDishesProducts.as_view()),
+    path('DeleteDishesVariants', DeleteDishesVariants.as_view()),
+    path('UpdateDish', UpdateDish.as_view()),
+    path('UpdateCategory', UpdateCategoty.as_view()),
+    path('UpdateDishesProducts', UpdateDishesProducts.as_view()),
+    path('UpdateDishesVariants', UpdateDishesVariants.as_view()),
 ]
