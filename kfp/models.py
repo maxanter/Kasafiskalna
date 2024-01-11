@@ -71,11 +71,13 @@ class Orders(models.Model):
     Order = models.IntegerField(primary_key=True)
     time = models.DateTimeField(default=timezone.now)
     waiter = models.ForeignKey(User, on_delete=models.CASCADE, null=False)
+    table = models.CharField(max_length=4, null=True)
 
 class OrdersHasDishes(models.Model):
     Order = models.ForeignKey(Orders, on_delete=models.CASCADE, null=False)
     Dish = models.ForeignKey(Dishes, on_delete=models.CASCADE, null=False)
     Variant = models.ForeignKey(DishesVariants, on_delete=models.CASCADE, null=False)
+    note = models.TextField(max_length = 500, null=True)
     count = models.DecimalField(
         max_digits=8,
         decimal_places=2,

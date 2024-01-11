@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer
 from django.contrib.auth.models import Permission
-from .models import Bills, Categories, Dishes, DishesProducts, DishesVariants, Orders, OrdersHasDishes, User
+from .models import Bills, Categories, Dishes, DishesProducts, DishesVariants, Notifications, Orders, OrdersHasDishes, User
 
 class UserSerializer(ModelSerializer):
     class Meta:
@@ -21,10 +21,23 @@ class UserSerializer(ModelSerializer):
     def update(self, instance, validated_data):
         return super().update(instance, validated_data)
     
+class UserDetailsSerializer(ModelSerializer):
+    first_name = serializers.CharField(max_length=255, allow_null=True)
+    last_name = serializers.CharField(max_length=255, allow_null=True)
+    class Meta:
+        model = User
+        fields = ['id','hired_time', 'phone_no', 'first_name', 'last_name', 'username', 'email']
+        extra_kwargs = {
+            'password': {'write_only': True}
+        }
+
 class CategoriesSerializer(ModelSerializer):
     class Meta:
         model = Categories
-        fields = '__all__'
+        fields = ['Category', 'name', 'higher_category']
+        extra_kwargs = {
+            'Category': {'read_only': True}
+        }
     def create(self, validated_data):
         return super().create(validated_data)
     def update(self, instance, validated_data):
@@ -35,6 +48,9 @@ class DishesSerializer(ModelSerializer):
     class Meta:
         model = Dishes
         fields = '__all__'
+        extra_kwargs = {
+            'D_no': {'read_only': True}
+        }
     def create(self, validated_data):
         return super().create(validated_data)
     def update(self, instance, validated_data):
@@ -91,7 +107,7 @@ class OrdersSerializer(ModelSerializer):
     dishes1 = OrdershasDishesSerializer(many=True, read_only=True)
     class Meta:
         model = Orders
-        fields = ['Order', 'time', 'waiter','dishes1']
+        fields = ['Order', 'time', 'table', 'waiter','dishes1']
 
 class OrdersHasDishesSerializer(serializers.ModelSerializer):
     class Meta:
@@ -109,6 +125,7 @@ class PendingOrderDetailsSerializer(serializers.ModelSerializer):
 
 class OrderStartSerializer(serializers.Serializer):
     waiter = serializers.IntegerField()
+    table = serializers.CharField(max_length=4)
 
 class OrderCreateSerializer(serializers.Serializer):
     dishes = serializers.ListField(write_only=True, child=serializers.IntegerField())
@@ -125,3 +142,11 @@ class UserOrGroupPermissionsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Permission
         fields = ['id', 'name','codename']
+
+class NotificationsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notifications
+        fields = ['Notification_no', 'To', 'notification', 'status']
+        extra_kwargs = {
+            'Notification_no': {'read_only': True}
+        }
