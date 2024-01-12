@@ -11,7 +11,7 @@ urlpatterns = [
     path('user', UserAPIView.as_view()),
     path('refresh', RefreshApiView.as_view()),
     path('logout', LogoutApiView.as_view()),
-    path('Categories', CategoriesView.as_view()),
+    path('Categories/<int:pk>/', CategoriesView.as_view()),
     path('Dishes/<int:pk>/<int:kk>/', DishesView.as_view()),
     path('DishesProducts/<int:pk>/<int:dk>/', DishesProductsView.as_view()),
     path('DishesVariants/<int:pk>/<int:dk>/', DishesVariantsView.as_view()),
