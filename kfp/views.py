@@ -81,16 +81,19 @@ class LogoutApiView(APIView):
     
 #Prośba o wyświetlenie wszystkich lub wybranej kategorii
 class CategoriesView(APIView):
-    def get(self, request, pk):
+    def get(self, request, pk, hk):
         requier_perms = ['view_categories']
         refresh_token = request.COOKIES.get('refreshToken')
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        if pk == 0:
-            queryset = Categories.objects.all()
+        if hk == 0:
+            if pk == 0:
+                queryset = Categories.objects.all()
+            else:
+                queryset = Categories.objects.get(pk=pk)
         else:
-            queryset = Categories.objects.get(pk=pk)   
+            queryset = Categories.objects.filter(higher_category = hk)   
         serializer = CategoriesSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
                  
@@ -152,16 +155,19 @@ class DishesVariantsView(APIView):
 
 #Prośba o wyświetlenie wszystkich lub wybranego zamówienia
 class OrdersDetailsView(APIView):
-    def get(self, request, pk):
+    def get(self, request, pk, uk):
         requier_perms = ['view_orders']
         refresh_token = request.COOKIES.get('refreshToken')
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        if pk == 0:
-            queryset = Orders.objects.all()
+        if uk == 0:
+            if pk == 0:
+                queryset = Orders.objects.all()
+            else:
+                queryset = Orders.objects.filter(pk=pk)
         else:
-            queryset = Orders.objects.filter(pk=pk)
+            queryset = Orders.objects.filter(waiter = uk)
         serializer = OrdersDetailsSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -251,10 +257,10 @@ class KitchenOrderStartView(APIView):
             raise exceptions.APIException('access denied')
         serializer = OrderStartSerializer(data = request.data)
         if serializer.is_valid():
-            waiter = serializer.validated_data['waiter']
             table = serializer.validated_data['table']
+            waiter = User.objects.get(pk = id)
             order = Orders.objects.create(waiter_id = waiter, table = table)
-            
+            order.save()
             latest_order = Orders.objects.filter(waiter=waiter).latest('time')
 
             print(latest_order.pk)
@@ -360,7 +366,7 @@ class AddPermissionToUser(APIView):
 
 #Proba o uuniecie permisji z wybranej grupy
 class RemovePermissionFromGroup(APIView):
-    def post(self, request):
+    def delete(self, request):
         requier_perms = ['delete_permission', 'change_group']
         refresh_token = request.COOKIES.get('refreshToken')
         id = decode_refresh_token(refresh_token)
@@ -387,7 +393,7 @@ class RemovePermissionFromGroup(APIView):
 
 #Prośba o usunięcie permisji wybranemu użytkownikowi
 class RemovePermissionFromUser(APIView):
-    def post(self, request):
+    def delete(self, request):
         requier_perms = ['delete_permission', 'change_user']
         refresh_token = request.COOKIES.get('refreshToken')
         id = decode_refresh_token(refresh_token)
@@ -490,11 +496,14 @@ class UserView(APIView):
         if pk == 0:
             queryset = User.objects.all()
         else:
-            queryset = User.objects.filter(pk = pk).first()
+            queryset = User.objects.get(pk = pk)
 
         if not queryset:
             raise exceptions.NotFound("Nie znaleziono użytkownika")
-        serializer = UserDetailsSerializer(queryset, many = True)
+        if pk == 0:
+            serializer = UserDetailsSerializer(queryset, many = True)
+        else:
+            serializer = UserDetailsSerializer(queryset, many = False)
         return Response(serializer.data, status=status.HTTP_200_OK)
     
 #Prośba o utworzenie nowego powiadomienia
@@ -532,7 +541,7 @@ class ViewedNotification(APIView):
         notification.save()
 
         serializer = NotificationsSerializer(notification)
-        return Response(serializer.data)
+        return Response({"message": "success"}, status=status.HTTP_200_OK)
     
 
 class RemoveUser(APIView):
@@ -648,14 +657,22 @@ class CreateBill(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
+        if Orders.objects.filter(pk = pk).exists() == False:
+            return Response({'error': 'Nie ma takiego zamówienia'}, status=status.HTTP_404_NOT_FOUND)
+        if OrdersHasDishes.objects.filter(Order = pk).exists() == False:
+            return Response({'error': 'To zamówienie nie ma pozycji'}, status=status.HTTP_404_NOT_FOUND)
         total_cost = OrdersHasDishes.objects.filter(Order_id=pk).aggregate(Sum('Dish__Cost'))['Dish__Cost__sum']
         order = Orders.objects.get(Order = pk)
         waiter = User.objects.get(pk = id)
+        if Bills.objects.filter(order = order).exists():
+            return Response({'error': 'Taki rachunek już istnieje'}, status=status.HTTP_400_BAD_REQUEST)
         bill = Bills.objects.create(order = order, waiter = waiter, Cost = total_cost)
-        bill.save()
-        return Response({'message': 'Total: ${total_cost}'}, status=status.HTTP_200_OK)
+        
+        ofbill = Bills.objects.get(order = order)
+        serializer = BillsSerializer(ofbill, many = False)
+        return Response(serializer.data, status=status.HTTP_200_OK)
     
-class DeleteOrderView(APIView):
+class DeleteOrderPartView(APIView):
     def delete(self, request, pk):
         requier_perms = ['delete_ordershasdishes']
         refresh_token = request.COOKIES.get('refreshToken')
@@ -670,6 +687,21 @@ class DeleteOrderView(APIView):
 
         return Response({'message': 'Zamówienie zostało pomyślnie usunięte'}, status=status.HTTP_200_OK)
     
+class DeleteOrderView(APIView):
+    def delete(self, request, pk):
+        requier_perms = ['delete_orders']
+        refresh_token = request.COOKIES.get('refreshToken')
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        Order = get_object_or_404(Orders, pk = pk)
+
+        if OrdersHasDishes.objects.filter(Order = pk).exists():
+            return Response({'error': 'Nie można usunąć zamówienia, które posiada pozycje'}, status=status.HTTP_400_BAD_REQUEST)
+        Order.delete()
+
+        return Response({'message': 'Zamówienie zostało pomyślnie usunięte'}, status=status.HTTP_200_OK)
+    
 class AddDishView(APIView):
     def post(self, request, format=None):
         requier_perms = ['add_dishes']
@@ -680,7 +712,9 @@ class AddDishView(APIView):
         serializer = DishesSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            dish = Dishes.objects.get(name = request.data.get('name'))
+            serializer2 = DishesSerializer(dish, many = False)
+            return Response(serializer2.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 class AddCategoryView(APIView):
@@ -693,7 +727,9 @@ class AddCategoryView(APIView):
         serializer = CategoriesSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            category = Categories.objects.get(name = request.data.get('name'))
+            serializer2 = DishesSerializer(category, many = False)
+            return Response(serializer2.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 class AddDishesProductsView(APIView):
@@ -731,7 +767,7 @@ class DeleteCategoty(APIView):
             raise exceptions.APIException('access denied')
         queryset = Categories.objects.get(pk=pk)
         queryset.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
 
 class DeleteDish(APIView):
     def delete(self, request, pk, format=None):
@@ -742,7 +778,7 @@ class DeleteDish(APIView):
             raise exceptions.APIException('access denied')
         queryset = Dishes.objects.get(pk=pk)
         queryset.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
 
 class DeleteDishesProducts(APIView):
     def delete(self, request, pk, format=None):
@@ -753,7 +789,7 @@ class DeleteDishesProducts(APIView):
             raise exceptions.APIException('access denied')
         queryset = DishesProducts.objects.get(pk=pk)
         queryset.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
 
 class DeleteDishesVariants(APIView):
     def delete(self, request, pk, format=None):
@@ -764,7 +800,7 @@ class DeleteDishesVariants(APIView):
             raise exceptions.APIException('access denied')
         queryset = DishesVariants.objects.get(pk=pk)
         queryset.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
 
 class UpdateCategoty(APIView):
     def patch(self, request, pk, format=None):

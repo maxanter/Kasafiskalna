@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import AddCategoryView, AddDishView, AddDishesProductsView, AddDishesVariantsView, AddGroupView, CategoriesView, CreateBill, CreateNotification, DeactivateUser, DeleteCategoty, DeleteDish, DeleteDishesProducts, DeleteDishesVariants, DeleteGroupView, DeleteOrderView, EditUserView, NotificationsView, RegisterAPIView, LoginAPIView, RemoveUser, UpdateCategoty, UpdateDish, UpdateDishesProducts, UpdateDishesVariants, UserAPIView, \
+from .views import AddCategoryView, AddDishView, AddDishesProductsView, AddDishesVariantsView, AddGroupView, CategoriesView, CreateBill, CreateNotification, DeactivateUser, DeleteCategoty, DeleteDish, DeleteDishesProducts, DeleteDishesVariants, DeleteGroupView, DeleteOrderPartView, DeleteOrderView, EditUserView, NotificationsView, RegisterAPIView, LoginAPIView, RemoveUser, UpdateCategoty, UpdateDish, UpdateDishesProducts, UpdateDishesVariants, UserAPIView, \
     RefreshApiView, LogoutApiView, DishesView, DishesProductsView, DishesVariantsView, OrdersDetailsView, \
     BillsView, KitchenOrdersView, UpdateDoneStatusAPIView, KitchenOrderCreateView, OrdershasDishesView, KitchenOrderStartView, \
     AddPermissionToGroup, AddPermissionToUser, RemovePermissionFromGroup, RemovePermissionFromUser, PermissionsView, \
@@ -15,7 +15,7 @@ urlpatterns = [
     path('Dishes/<int:pk>/<int:kk>/', DishesView.as_view()),
     path('DishesProducts/<int:pk>/<int:dk>/', DishesProductsView.as_view()),
     path('DishesVariants/<int:pk>/<int:dk>/', DishesVariantsView.as_view()),
-    path('OrdersDetails/<int:pk>/', OrdersDetailsView.as_view()),
+    path('OrdersDetails/<int:pk>/<int:uk>/', OrdersDetailsView.as_view()),
     path('Bills/<int:pk>/<int:uk>/', BillsView.as_view()),
     path('OrdershasDishes/<int:pk>/<int:ok>/', OrdershasDishesView.as_view()),
     path('KitchenOrders/<int:pk>/', KitchenOrdersView.as_view()),
@@ -40,14 +40,15 @@ urlpatterns = [
     path('EditUser/<int:pk>/', EditUserView.as_view()),
     path('CreateBill/<int:pk>/', CreateBill.as_view()),
     path('DeleteOrder/<int:pk>/', DeleteOrderView.as_view()),
+    path('DeleteOrderPart/<int:pk>/', DeleteOrderPartView.as_view()),
     path('AddDish', AddDishView.as_view()),
     path('AddCategory', AddCategoryView.as_view()),
     path('AddDishesProducts', AddDishesProductsView.as_view()),
     path('AddDishesVariants', AddDishesVariantsView.as_view()),
-    path('DeleteDish', DeleteDish.as_view()),
-    path('DeleteCategory', DeleteCategoty.as_view()),
-    path('DeleteDishesProducts', DeleteDishesProducts.as_view()),
-    path('DeleteDishesVariants', DeleteDishesVariants.as_view()),
+    path('DeleteDish/<int:pk>/', DeleteDish.as_view()),
+    path('DeleteCategory/<int:pk>/', DeleteCategoty.as_view()),
+    path('DeleteDishesProducts/<int:pk>/', DeleteDishesProducts.as_view()),
+    path('DeleteDishesVariants/<int:pk>/', DeleteDishesVariants.as_view()),
     path('UpdateDish', UpdateDish.as_view()),
     path('UpdateCategory', UpdateCategoty.as_view()),
     path('UpdateDishesProducts', UpdateDishesProducts.as_view()),

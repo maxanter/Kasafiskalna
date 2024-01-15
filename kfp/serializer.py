@@ -124,7 +124,6 @@ class PendingOrderDetailsSerializer(serializers.ModelSerializer):
         fields = ['Order', 'id', 'count', 'done', 'Variant_no', 'Variant_count', 'Dish_name']
 
 class OrderStartSerializer(serializers.Serializer):
-    waiter = serializers.IntegerField()
     table = serializers.CharField(max_length=4)
 
 class OrderCreateSerializer(serializers.Serializer):
