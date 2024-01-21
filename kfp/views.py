@@ -1,10 +1,12 @@
+from datetime import timedelta
 from rest_framework import exceptions, status
 from rest_framework.authentication import get_authorization_header
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.exceptions import APIException, AuthenticationFailed
 from django.utils import timezone
-from django.db.models import Q, Sum
+from django.db.models import Q, Sum, F, ExpressionWrapper, fields
+from django.db.models.functions import Now
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
@@ -13,6 +15,34 @@ from .autorization import check_perms
 from .serializer import BillsSerializer, CategoriesSerializer, DishesProductsSerializer, DishesSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, OrdersSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer
 from .models import Bills, Categories, Dishes, DishesProducts, DishesVariants, Notifications, Orders, OrdersHasDishes, User
 from django.contrib.auth.models import Group, Permission
+
+#dodatkowe funkcje
+def create_notifications():
+    orders_to_notify = Orders.objects.filter(ordershasdishes__done=True)
+
+    notifications_to_create = []
+    for order in orders_to_notify:
+        existing_notifications_count = Notifications.objects.filter(Order=order).count()
+        dishes_count = OrdersHasDishes.objects.filter(Order=order, done=True).count()
+
+        remaining_notifications = dishes_count - existing_notifications_count
+
+        if remaining_notifications > 0:
+            existing_notification_orders = Notifications.objects.filter(Order=order).values_list('Order_id', flat=True)
+            remaining_notification_orders = set(OrdersHasDishes.objects.filter(Order=order, done=True).values_list('Order_id', flat=True))
+            user = User.objects.get(pk = order.waiter_id)
+            notifications_to_create.extend([
+                Notifications(
+                    To=user,
+                    notification='Gotowe',
+                    status=Notifications.Status.WARNING,
+                    Order=order
+                ) for _ in range(remaining_notifications) if order.Order not in existing_notification_orders
+            ])
+
+    Notifications.objects.bulk_create(notifications_to_create)
+
+
 
 #Rejestracja użytkownika
 class RegisterAPIView(APIView):
@@ -36,6 +66,9 @@ class LoginAPIView(APIView):
         if user.is_active == False:
             raise APIException('Invalid credentials!')
 
+        user.last_login = timezone.now() + timedelta(hours=1)
+        user.save()
+
         access_token = create_access_token(user.id)
         refresh_token = create_refresh_token(user.id)
 
@@ -56,7 +89,7 @@ class UserAPIView(APIView):
         
         user = User.objects.filter(pk=id).first()
 
-        return Response(UserSerializer(user).data)
+        return Response(UserDetailsSerializer(user).data)
 
 #Prośba o wygenerowanie tokenu dostępu
 class RefreshApiView(APIView):
@@ -65,13 +98,22 @@ class RefreshApiView(APIView):
         id = decode_refresh_token(refresh_token)
         access_token = create_access_token(id)
 
+        user = User.objects.get(pk = id)
+        user.last_login = timezone.now() + timedelta(hours=1)
+        user.save()
+
         return Response({
             'token': access_token
         })
 
 #Prośba o usunięcie tokenu odświeżania
 class LogoutApiView(APIView):
-    def post(self, _):
+    def post(self, request):
+        refresh_token = request.COOKIES.get('refreshToken')
+        id = decode_refresh_token(refresh_token)
+        user = User.objects.get(pk = id)
+        user.last_login = timezone.now() + timedelta(hours=1)
+        user.save()
         response = Response()
         response.delete_cookie(key="refreshToken")
         response.data = {
@@ -479,6 +521,9 @@ class NotificationsView(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
+        
+        create_notifications()
+
         NotificationSet = Notifications.objects.filter(To = id).exclude(status = 2)
         if not NotificationSet.exists():
             return Response({'message': 'Brak powiadomień'}, status=status.HTTP_404_NOT_FOUND)
@@ -514,7 +559,8 @@ class CreateNotification(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = NotificationsSerializer(data=request.data)
+        
+        serializer = NotificationsSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         response_data = {
@@ -857,3 +903,8 @@ class UpdateDishesVariants(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+class CashOutView(APIView):
+    def get(self, request):
+        pass

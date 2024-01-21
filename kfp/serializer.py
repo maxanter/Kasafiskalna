@@ -26,9 +26,10 @@ class UserDetailsSerializer(ModelSerializer):
     last_name = serializers.CharField(max_length=255, allow_null=True)
     class Meta:
         model = User
-        fields = ['id','hired_time', 'phone_no', 'first_name', 'last_name', 'username', 'email']
+        fields = ['id','hired_time', 'phone_no', 'first_name', 'last_name', 'username', 'email', 'last_login']
         extra_kwargs = {
-            'password': {'write_only': True}
+            'password': {'write_only': True},
+            'last_login': {'read_only': True}
         }
 
 class CategoriesSerializer(ModelSerializer):
@@ -145,7 +146,7 @@ class UserOrGroupPermissionsSerializer(serializers.ModelSerializer):
 class NotificationsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notifications
-        fields = ['Notification_no', 'To', 'notification', 'status']
+        fields = ['Notification_no', 'To', 'notification', 'status', 'Order']
         extra_kwargs = {
             'Notification_no': {'read_only': True}
         }

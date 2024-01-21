@@ -103,8 +103,9 @@ class Notifications(models.Model):
         WARNING = 1, 'Warning'
         END = 2, 'End'
     
-    Notification_no = models.IntegerField(primary_key=True)
+    Notification_no = models.AutoField(primary_key=True)
     To = models.ForeignKey(User, on_delete=models.CASCADE, null=False)
     notification = models.TextField(max_length=511, null=False)
     status = models.IntegerField(choices=Status.choices)
+    Order = models.ForeignKey(Orders,on_delete=models.CASCADE, null=True)
 
