@@ -29,9 +29,18 @@ class UserDetailsSerializer(ModelSerializer):
         fields = ['id','hired_time', 'phone_no', 'first_name', 'last_name', 'username', 'email', 'last_login']
         extra_kwargs = {
             'password': {'write_only': True},
-            'last_login': {'read_only': True}
+            'last_login': {'read_only': True},
+            'hired_time': {'read_only': True},
         }
+    def update(self, instance, validated_data):
+        new_password = validated_data.get('password')
 
+        # Jeśli przekazano nowe hasło, ustaw je
+        if new_password:
+            instance.set_password(new_password)
+
+        return super().update(instance, validated_data)
+    
 class CategoriesSerializer(ModelSerializer):
     class Meta:
         model = Categories

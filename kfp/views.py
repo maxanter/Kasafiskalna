@@ -1,18 +1,16 @@
 from datetime import timedelta
 from rest_framework import exceptions, status
-from rest_framework.authentication import get_authorization_header
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.exceptions import APIException, AuthenticationFailed
+from rest_framework.exceptions import APIException 
 from django.utils import timezone
-from django.db.models import Q, Sum, F, ExpressionWrapper, fields
-from django.db.models.functions import Now
+from django.db.models import Q, Sum
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
-from .authentication import create_access_token, create_refresh_token, decode_access_token, decode_refresh_token
+from .authentication import create_access_token, create_refresh_token, decode_refresh_token
 from .autorization import check_perms
-from .serializer import BillsSerializer, CategoriesSerializer, DishesProductsSerializer, DishesSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, OrdersSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer
+from .serializer import BillsSerializer, CategoriesSerializer, DishesProductsSerializer, DishesSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer
 from .models import Bills, Categories, Dishes, DishesProducts, DishesVariants, Notifications, Orders, OrdersHasDishes, User
 from django.contrib.auth.models import Group, Permission
 
@@ -133,7 +131,7 @@ class CategoriesView(APIView):
             if pk == 0:
                 queryset = Categories.objects.all()
             else:
-                queryset = Categories.objects.get(pk=pk)
+                queryset = Categories.objects.filter(pk=pk)
         else:
             queryset = Categories.objects.filter(higher_category = hk)   
         serializer = CategoriesSerializer(queryset, many=True)
@@ -360,7 +358,7 @@ class AddPermissionToGroup(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = PermissionSerializer(data=request.data)
+        serializer = PermissionSerializer(data=request.data, partial=True)
         if serializer.is_valid():
             group_id = serializer.validated_data['group_id']
             permission_codename = serializer.validated_data['permission_codename']
@@ -387,7 +385,7 @@ class AddPermissionToUser(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = PermissionSerializer(data=request.data)
+        serializer = PermissionSerializer(data=request.data, partial=True)
         if serializer.is_valid():
             user_id = serializer.validated_data['user_id']
             permission_codename = serializer.validated_data['permission_codename']
@@ -414,7 +412,7 @@ class RemovePermissionFromGroup(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = PermissionSerializer(data=request.data)
+        serializer = PermissionSerializer(data=request.data, partial=True)
         if serializer.is_valid():
             group_id = serializer.validated_data['group_id']
             permission_codename = serializer.validated_data['permission_codename']
@@ -441,7 +439,7 @@ class RemovePermissionFromUser(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = PermissionSerializer(data=request.data)
+        serializer = PermissionSerializer(data=request.data, partial=True)
         if serializer.is_valid():
             user_id = serializer.validated_data['user_id']
             permission_codename = serializer.validated_data['permission_codename']
@@ -657,45 +655,22 @@ class DeleteGroupView(APIView):
     
 class EditUserView(APIView):
     def patch(self, request, pk):
-        requier_perms = ['change_user']
+        require_perms = ['change_user']
         refresh_token = request.COOKIES.get('refreshToken')
-        id = decode_refresh_token(refresh_token)
-        if not check_perms(id=id, requier_perms=requier_perms):
-            raise exceptions.APIException('access denied')
-        user = get_object_or_404(User, pk=pk)
-
-        # Pobierz dane z ciała żądania
-        new_username = request.data.get('new_username')
-        new_email = request.data.get('new_email')
-        new_password = request.data.get('new_password')
-        new_phone_no = request.data.get('new_phone_no')
-        new_first_name = request.data.get('new_first_name')
-        new_last_name = request.data.get('new_last_name')
-
-        # Sprawdź, czy nowa nazwa użytkownika lub email są unikalne
-        if User.objects.filter(username=new_username).exclude(pk=user.pk).exists():
-            return Response({'error': 'Użytkownik o tej nazwie już istnieje'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if User.objects.filter(email=new_email).exclude(pk=user.pk).exists():
-            return Response({'error': 'Użytkownik o tym adresie email już istnieje'}, status=status.HTTP_400_BAD_REQUEST)
+        user_id = decode_refresh_token(refresh_token)
         
-        if User.objects.filter(phone_no=new_phone_no).exclude(pk=user.pk).exists():
-            return Response({'error': 'Użytkownik o tym numerze telefonu już istnieje'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Zaktualizuj dane użytkownika
-        user.username = new_username
-        user.email = new_email
-        user.phone_no = new_phone_no
-        user.first_name = new_first_name
-        user.last_name = new_last_name
-
-        if new_password:
-            user.set_password(new_password)
-
-        user.save()
-
-        return Response({'message': 'Dane użytkownika zostały pomyślnie zaktualizowane'}, status=status.HTTP_200_OK)
-
+        if not check_perms(id=user_id, requier_perms=require_perms):
+            raise exceptions.APIException('access denied')
+        
+        user = get_object_or_404(User, pk=pk)
+        serializer = UserDetailsSerializer(user, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'message': 'Dane użytkownika zostały pomyślnie zaktualizowane'}, status=status.HTTP_200_OK)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
 class CreateBill(APIView):
     def post(self, request, pk):
         requier_perms = ['add_bills']
