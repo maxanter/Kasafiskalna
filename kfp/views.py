@@ -299,10 +299,10 @@ class KitchenOrderStartView(APIView):
         serializer = OrderStartSerializer(data = request.data)
         if serializer.is_valid():
             table = serializer.validated_data['table']
-            waiter = User.objects.get(pk = id)
-            order = Orders.objects.create(waiter_id = waiter, table = table)
+            #waiter = User.objects.get(pk = id)
+            order = Orders.objects.create(waiter_id = id, table = table)
             order.save()
-            latest_order = Orders.objects.filter(waiter=waiter).latest('time')
+            latest_order = Orders.objects.filter(waiter=id).latest('time')
 
             print(latest_order.pk)
             response_data = {
