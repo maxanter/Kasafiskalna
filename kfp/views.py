@@ -322,32 +322,13 @@ class KitchenOrderCreateView(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = OrderCreateSerializer(data=request.data)
+        serializer = OrdersHasDishesSerializer(data=request.data)
         if serializer.is_valid():
-            order_number = serializer.validated_data['order']
-            dish_ids = serializer.validated_data['dishes']
-            counts = serializer.validated_data['counts']
-            variants = serializer.validated_data['variants']
-
-            try:
-                with transaction.atomic():
-                    order = Orders.objects.get(pk=order_number)
-                    for dish_id, count, variant_id in zip(dish_ids, counts, variants):
-                        dish = Dishes.objects.get(pk=dish_id)
-                        variant = DishesVariants.objects.get(pk=variant_id)
-
-                        OrdersHasDishes.objects.create(Order=order, Dish=dish, count=count, Variant=variant, done=False)
-
-                response_data = {
-                    'message': 'Success'
-                }
-
-                return Response(response_data, status=status.HTTP_201_CREATED)
-
-            except Exception as e:
-                # W razie błędu, cofnij transakcję
-                transaction.set_rollback(True)
-                return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            serializer.save()
+            response_data = {
+                'message': 'Success' 
+            }
+            return Response(response_data, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
