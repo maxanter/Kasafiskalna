@@ -202,28 +202,25 @@ class OrdersDetailsView(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        if uk == 0:
-            if pk == 0:
-                queryset = Orders.objects.all()
+        isbill =  request.data.get('bill')
+        if isbill == False:
+            if uk == 0:
+                if pk == 0:
+                    queryset = Orders.objects.filter()
+                else:
+                    queryset = Orders.objects.filter(pk=pk)
             else:
-                queryset = Orders.objects.filter(pk=pk)
-        else:
-            queryset = Orders.objects.filter(waiter = uk)
+                queryset = Orders.objects.filter(waiter = uk)
+        else: 
+            if uk == 0:
+                if pk == 0:
+                    queryset = Orders.objects.filter(bills__isnull=isbill)
+                else:
+                    queryset = Orders.objects.filter(pk=pk, bills__isnull=isbill)
+            else:
+                queryset = Orders.objects.filter(waiter = uk, bills__isnull=isbill)
         serializer = OrdersDetailsSerializer(queryset, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-class OrdersRestDetailsView(APIView):
-    def get(self, request):
-        requier_perms = ['view_orders']
-        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
-        id = decode_refresh_token(refresh_token)
-        if not check_perms(id=id, requier_perms=requier_perms):
-            raise exceptions.APIException('access denied')
-        queryset = Orders.objects.filter(bills__isnull=True)
-
-        serializer = OrdersDetailsSerializer(queryset, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-        
+        return Response(serializer.data, status=status.HTTP_200_OK)    
 
 #Prośba o wyświetlenie wszystki pozycji z zamówień lub wybranej
 class OrdershasDishesView(APIView):
