@@ -212,6 +212,19 @@ class OrdersDetailsView(APIView):
         serializer = OrdersDetailsSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+class OrdersRestDetailsView(APIView):
+    def get(self, request):
+        requier_perms = ['view_orders']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        queryset = Orders.objects.filter(bills__isnull=True)
+
+        serializer = OrdersDetailsSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+        
+
 #Prośba o wyświetlenie wszystki pozycji z zamówień lub wybranej
 class OrdershasDishesView(APIView):
     def get(self, request, pk, ok):
