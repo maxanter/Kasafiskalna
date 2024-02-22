@@ -203,23 +203,14 @@ class OrdersDetailsView(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        isbill =  request.data.get('bill')
-        if isbill == False:
-            if uk == 0:
-                if pk == 0:
-                    queryset = Orders.objects.filter()
-                else:
-                    queryset = Orders.objects.filter(pk=pk)
+        
+        if uk == 0:
+            if pk == 0:
+                queryset = Orders.objects.filter(bills__isnull=True)
             else:
-                queryset = Orders.objects.filter(waiter = uk)
-        else: 
-            if uk == 0:
-                if pk == 0:
-                    queryset = Orders.objects.filter(bills__isnull=isbill)
-                else:
-                    queryset = Orders.objects.filter(pk=pk, bills__isnull=isbill)
-            else:
-                queryset = Orders.objects.filter(waiter = uk, bills__isnull=isbill)
+                queryset = Orders.objects.filter(pk=pk, bills__isnull=True)
+        else:
+            queryset = Orders.objects.filter(waiter = uk, bills__isnull=True)
         serializer = OrdersDetailsSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)    
 
