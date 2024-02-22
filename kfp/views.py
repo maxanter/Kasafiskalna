@@ -198,6 +198,7 @@ class DishesVariantsView(APIView):
 class OrdersDetailsView(APIView):
     def get(self, request, pk, uk):
         requier_perms = ['view_orders']
+        print(request.headers.get('Authorization'))
         refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):

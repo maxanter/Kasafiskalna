@@ -131,7 +131,7 @@ class PendingOrderDetailsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrdersHasDishes
-        fields = ['Order', 'id', 'count', 'done', 'Variant_no', 'Variant_count', 'Dish_name']
+        fields = ['Order', 'id', 'count', 'done', 'Variant_no', 'Variant_count', 'Dish_name', 'note']
 
 class OrderStartSerializer(serializers.Serializer):
     table = serializers.CharField(max_length=4)
