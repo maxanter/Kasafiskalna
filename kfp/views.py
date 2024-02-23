@@ -489,7 +489,6 @@ class UserPermissionsView(APIView):
             user = User.objects.get(pk=pk)
             
             show_all_permissions = request.query_params.get('all_permissions', 'false').lower() == 'true'
-            print(show_all_permissions)
             if show_all_permissions:
                 permissions = Permission.objects.exclude(id__in=user.user_permissions.values_list('id', flat=True))
             else:
@@ -510,7 +509,15 @@ class GroupPermissionsView(APIView):
             raise exceptions.APIException('access denied')
         try:
             group = Group.objects.get(pk=pk)
-            permissions = group.permissions.all()
+            
+            # Dodaj parametr do URL: /group-permissions/<pk>/?all_permissions=true
+            show_all_permissions = request.query_params.get('all_permissions', 'false').lower() == 'true'
+            
+            if show_all_permissions:
+                permissions = Permission.objects.exclude(id__in=group.permissions.values_list('id', flat=True))
+            else:
+                permissions = group.permissions.all()
+            
             serializer = UserOrGroupPermissionsSerializer(permissions, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Group.DoesNotExist:
