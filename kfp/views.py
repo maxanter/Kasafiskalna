@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404
 
 from .authentication import create_access_token, create_refresh_token, decode_refresh_token
 from .autorization import check_perms
-from .serializer import BillsSerializer, CategoriesSerializer, DishesProductsSerializer, DishesSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer
+from .serializer import BillsSerializer, CategoriesSerializer, DishesProductsSerializer, DishesSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer, GroupSerializer
 from .models import Bills, Categories, Dishes, DishesProducts, DishesVariants, Notifications, Orders, OrdersHasDishes, User
 from django.contrib.auth.models import Group, Permission
 
@@ -334,6 +334,19 @@ class KitchenOrderCreateView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+class GroupView(APIView):
+    def get(self, request):
+        requier_perms = ['view_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        
+        group = Group.objects.all()
+        serializer = GroupSerializer(group, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 #Prośba o dodanie permisji do grupy
 class AddPermissionToGroup(APIView):
     def post(self, request):
@@ -471,9 +484,17 @@ class UserPermissionsView(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
+
         try:
             user = User.objects.get(pk=pk)
-            permissions = user.user_permissions.all()
+            
+            show_all_permissions = request.query_params.get('all_permissions', 'false').lower() == 'true'
+            print(show_all_permissions)
+            if show_all_permissions:
+                permissions = Permission.objects.exclude(id__in=user.user_permissions.values_list('id', flat=True))
+            else:
+                permissions = user.user_permissions.all()
+            
             serializer = UserOrGroupPermissionsSerializer(permissions, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except User.DoesNotExist:

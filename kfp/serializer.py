@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Permission, Group
 from .models import Bills, Categories, Dishes, DishesProducts, DishesVariants, Notifications, Orders, OrdersHasDishes, User
 
 class UserSerializer(ModelSerializer):
@@ -159,3 +159,19 @@ class NotificationsSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'Notification_no': {'read_only': True}
         }
+
+class PermissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Permission
+        fields = ['id', 'name', 'codename']
+
+class GroupSerializer(serializers.ModelSerializer):
+    permissions = serializers.SerializerMethodField()
+
+    def get_permissions(self, group):
+        permissions = Permission.objects.filter(group=group)
+        return PermissionSerializer(permissions, many=True).data
+
+    class Meta:
+        model = Group
+        fields = ['id', 'name', 'permissions']

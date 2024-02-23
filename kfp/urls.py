@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import AddCategoryView, AddDishView, AddDishesProductsView, AddDishesVariantsView, AddGroupView, CategoriesView, CreateBill, CreateNotification, DeactivateUser, DeleteCategoty, DeleteDish, DeleteDishesProducts, DeleteDishesVariants, DeleteGroupView, DeleteOrderPartView, DeleteOrderView, EditUserView, NotificationsView,  RegisterAPIView, LoginAPIView, RemoveUser, UpdateCategoty, UpdateDish, UpdateDishesProducts, UpdateDishesVariants, UserAPIView, \
+from .views import AddCategoryView, AddDishView, AddDishesProductsView, AddDishesVariantsView, AddGroupView, CategoriesView, CreateBill, CreateNotification, DeactivateUser, DeleteCategoty, DeleteDish, DeleteDishesProducts, DeleteDishesVariants, DeleteGroupView, DeleteOrderPartView, DeleteOrderView, EditUserView, GroupView, NotificationsView,  RegisterAPIView, LoginAPIView, RemoveUser, UpdateCategoty, UpdateDish, UpdateDishesProducts, UpdateDishesVariants, UserAPIView, \
     RefreshApiView, LogoutApiView, DishesView, DishesProductsView, DishesVariantsView, OrdersDetailsView, \
     BillsView, KitchenOrdersView, UpdateDoneStatusAPIView, KitchenOrderCreateView, OrdershasDishesView, KitchenOrderStartView, \
     AddPermissionToGroup, AddPermissionToUser, RemovePermissionFromGroup, RemovePermissionFromUser, PermissionsView, \
@@ -31,6 +31,7 @@ urlpatterns = [
     path('GroupPermissions/<int:pk>/', GroupPermissionsView.as_view()),
     path('Notifications', NotificationsView.as_view()),
     path('Users/<int:pk>/', UserView.as_view()),
+    path('Groups', GroupView.as_view()),
     path('CreateNotification', CreateNotification.as_view()),
     path('ViewedNotification/<int:pk>/', ViewedNotification.as_view()),
     path('RemoveUser/<int:pk>/', RemoveUser.as_view()),
