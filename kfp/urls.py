@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import AddCategoryView, AddDishView, AddDishesProductsView, AddDishesVariantsView, AddGroupView, CategoriesView, CreateBill, CreateNotification, DeactivateUser, DeleteCategoty, DeleteDish, DeleteDishesProducts, DeleteDishesVariants, DeleteGroupView, DeleteOrderPartView, DeleteOrderView, EditUserView, GroupView, NotificationsView,  RegisterAPIView, LoginAPIView, RemoveUser, UpdateCategoty, UpdateDish, UpdateDishesProducts, UpdateDishesVariants, UserAPIView, \
+from .views import AddCategoryView, AddDishView, AddDishesProductsView, AddDishesVariantsView, AddGroupView, AddUserToGroup, CategoriesView, CreateBill, CreateNotification, DeactivateUser, DeleteCategoty, DeleteDish, DeleteDishesProducts, DeleteDishesVariants, DeleteGroupView, DeleteOrderPartView, DeleteOrderView, EditUserView, GroupView, NotificationsView,  RegisterAPIView, LoginAPIView, RemoveUser, RemoveUserFromGroup, UpdateCategoty, UpdateDish, UpdateDishesProducts, UpdateDishesVariants, UserAPIView, \
     RefreshApiView, LogoutApiView, DishesView, DishesProductsView, DishesVariantsView, OrdersDetailsView, \
     BillsView, KitchenOrdersView, UpdateDoneStatusAPIView, KitchenOrderCreateView, OrdershasDishesView, KitchenOrderStartView, \
     AddPermissionToGroup, AddPermissionToUser, RemovePermissionFromGroup, RemovePermissionFromUser, PermissionsView, \
@@ -27,14 +27,16 @@ urlpatterns = [
     path('RemovePermissionFromGroup', RemovePermissionFromGroup.as_view()),
     path('RemovePermissionFromUser', RemovePermissionFromUser.as_view()),
     path('Permissions', PermissionsView.as_view()),
-    path('UserPermissions/<int:pk>/', UserPermissionsView.as_view()),
-    path('GroupPermissions/<int:pk>/', GroupPermissionsView.as_view()),
+    path('UserPermissions/<int:pk>/<str:perm>/', UserPermissionsView.as_view()),
+    path('GroupPermissions/<int:pk>/<str:perm>/', GroupPermissionsView.as_view()),
     path('Notifications', NotificationsView.as_view()),
-    path('Users/<int:pk>/', UserView.as_view()),
-    path('Groups', GroupView.as_view()),
+    path('Users/<int:pk>/<int:gk>/', UserView.as_view()),
+    path('Groups/<int:pk>/<int:uk>/', GroupView.as_view()),
     path('CreateNotification', CreateNotification.as_view()),
     path('ViewedNotification/<int:pk>/', ViewedNotification.as_view()),
     path('RemoveUser/<int:pk>/', RemoveUser.as_view()),
+    path('AddUserToGroup/<int:uk>/<int:gk>/', AddUserToGroup.as_view()),
+    path('RemoveUserFromGroup/<int:uk>/<int:gk>/', RemoveUserFromGroup.as_view()),
     path('DeactivateUser/<int:pk>/', DeactivateUser.as_view()),
     path('AddGroup', AddGroupView.as_view()),
     path('DeleteGroup/<int:pk>/', DeleteGroupView.as_view()),

@@ -85,10 +85,12 @@ class UserAPIView(APIView):
     def get(self, request):
         refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
         id = decode_refresh_token(refresh_token)
-        
+        print(id)
         user = User.objects.filter(pk=id).first()
 
-        return Response(UserDetailsSerializer(user).data)
+        serializer = UserDetailsSerializer(user)
+
+        return Response(serializer.data)
 
 #Prośba o wygenerowanie tokenu dostępu
 class RefreshApiView(APIView):
@@ -335,14 +337,21 @@ class KitchenOrderCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class GroupView(APIView):
-    def get(self, request):
+    def get(self, request,pk,uk):
         requier_perms = ['view_group']
         refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
+        if uk == 0:
+            if pk == 0:
+                group = Group.objects.all()
+            else:
+                group = Group.objects.filter(pk=pk)
+        else:
+            user = User.objects.get(pk=uk)
+            group = user.groups.all()
         
-        group = Group.objects.all()
         serializer = GroupSerializer(group, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -478,7 +487,7 @@ class PermissionsView(APIView):
 
 #prośba o wyświetlenie permisji wybranego użytkownika
 class UserPermissionsView(APIView):
-    def get(self, request, pk):
+    def get(self, request, pk, perm):
         requier_perms = ['view_permission', 'view_user']
         refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
         id = decode_refresh_token(refresh_token)
@@ -488,8 +497,8 @@ class UserPermissionsView(APIView):
         try:
             user = User.objects.get(pk=pk)
             
-            show_all_permissions = request.query_params.get('all_permissions', 'false').lower() == 'true'
-            if show_all_permissions:
+            perm_bool = perm.lower() == 'true'
+            if perm_bool:
                 permissions = Permission.objects.exclude(id__in=user.user_permissions.values_list('id', flat=True))
             else:
                 permissions = user.user_permissions.all()
@@ -501,7 +510,7 @@ class UserPermissionsView(APIView):
 
 #Prośba o wywietlenie permiji wybranej grupy
 class GroupPermissionsView(APIView):
-    def get(self, request, pk):
+    def get(self, request, pk, perm):
         requier_perms = ['view_permission', 'view_group']
         refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
         id = decode_refresh_token(refresh_token)
@@ -511,9 +520,8 @@ class GroupPermissionsView(APIView):
             group = Group.objects.get(pk=pk)
             
             # Dodaj parametr do URL: /group-permissions/<pk>/?all_permissions=true
-            show_all_permissions = request.query_params.get('all_permissions', 'false').lower() == 'true'
-            
-            if show_all_permissions:
+            perm_bool = perm.lower() == 'true'
+            if perm_bool:
                 permissions = Permission.objects.exclude(id__in=group.permissions.values_list('id', flat=True))
             else:
                 permissions = group.permissions.all()
@@ -542,16 +550,22 @@ class NotificationsView(APIView):
 
 #Prośba o wyświetlenie danych wybranego lub wzystkich użytkowników 
 class UserView(APIView):
-    def get(self, request, pk):
+    def get(self, request, pk, gk):
         requier_perms = ['view_notifications']
         refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        if pk == 0:
-            queryset = User.objects.all()
+        
+        if gk == 0:
+            if pk == 0:
+                queryset = User.objects.all()
+            else:
+                queryset = User.objects.get(pk = pk)
         else:
-            queryset = User.objects.get(pk = pk)
+            group = Group.objects.get(pk = gk)
+            queryset = User.objects.filter(groups__in=[group])
+
 
         if not queryset:
             raise exceptions.NotFound("Nie znaleziono użytkownika")
@@ -612,6 +626,36 @@ class RemoveUser(APIView):
         user.delete()
 
         return Response({'message': 'Użytkownik został pomyślnie usunięty'}, status=status.HTTP_200_OK)
+
+class AddUserToGroup(APIView):
+    def post(self, request, uk, gk):
+        requier_perms = ['change_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        user = get_object_or_404(User, id=uk)
+        group = get_object_or_404(Group, id=gk)
+
+        user.groups.add(group)
+        user.save()
+
+        return Response({"detail": "User added to group successfully"}, status=status.HTTP_200_OK)
+    
+class RemoveUserFromGroup(APIView):
+    def post(self, request, uk, gk):
+        requier_perms = ['change_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        user = get_object_or_404(User, id=uk)
+        group = get_object_or_404(Group, id=gk)
+
+        user.groups.remove(group)
+        user.save()
+
+        return Response({"detail": "User removed from group successfully"}, status=status.HTTP_200_OK)
 
 class DeactivateUser(APIView):
     def patch(self, request, pk):
