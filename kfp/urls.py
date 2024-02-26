@@ -2,7 +2,7 @@ from django.urls import path
 from .views import AddCategoryView, AddDishView, AddDishesProductsView, AddDishesVariantsView, AddGroupView, AddUserToGroup, CategoriesView, CreateBill, CreateNotification, DeactivateUser, DeleteCategoty, DeleteDish, DeleteDishesProducts, DeleteDishesVariants, DeleteGroupView, DeleteOrderPartView, DeleteOrderView, EditUserView, GroupView, NotificationsView,  RegisterAPIView, LoginAPIView, RemoveUser, RemoveUserFromGroup, UpdateCategoty, UpdateDish, UpdateDishesProducts, UpdateDishesVariants, UserAPIView, \
     RefreshApiView, LogoutApiView, DishesView, DishesProductsView, DishesVariantsView, OrdersDetailsView, \
     BillsView, KitchenOrdersView, UpdateDoneStatusAPIView, KitchenOrderCreateView, OrdershasDishesView, KitchenOrderStartView, \
-    AddPermissionToGroup, AddPermissionToUser, RemovePermissionFromGroup, RemovePermissionFromUser, PermissionsView, \
+    AddPermissionToGroup, AddPermissionToUser, RemovePermissionFromGroup, RemovePermissionFromUser, PermissionsView, UserGroupView, \
     UserPermissionsView, GroupPermissionsView, UserView, ViewedNotification
 
 urlpatterns = [
@@ -32,6 +32,7 @@ urlpatterns = [
     path('Notifications', NotificationsView.as_view()),
     path('Users/<int:pk>/<int:gk>/', UserView.as_view()),
     path('Groups/<int:pk>/<int:uk>/', GroupView.as_view()),
+    path('UserGroup/<int:pk>/', UserGroupView.as_view()),
     path('CreateNotification', CreateNotification.as_view()),
     path('ViewedNotification/<int:pk>/', ViewedNotification.as_view()),
     path('RemoveUser/<int:pk>/', RemoveUser.as_view()),

@@ -142,7 +142,7 @@ class OrderCreateSerializer(serializers.Serializer):
     counts = serializers.ListField(write_only=True, child=serializers.DecimalField(max_digits=8, decimal_places=2))
     variants = serializers.ListField(write_only=True, child=serializers.IntegerField())
 
-class PermissionSerializer(serializers.Serializer):
+class Permission2Serializer(serializers.Serializer):
     group_id = serializers.IntegerField(required=True)
     user_id = serializers.IntegerField(required=True)
     permission_codename = serializers.CharField(required=True)
@@ -175,3 +175,15 @@ class GroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = Group
         fields = ['id', 'name', 'permissions']
+
+class GroupUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Group
+        fields = ['id','name']
+
+class UserGroupSerializer(serializers.ModelSerializer):
+    groups = GroupUserSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'groups']

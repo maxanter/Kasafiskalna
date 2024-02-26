@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404
 
 from .authentication import create_access_token, create_refresh_token, decode_refresh_token
 from .autorization import check_perms
-from .serializer import BillsSerializer, CategoriesSerializer, DishesProductsSerializer, DishesSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer, GroupSerializer
+from .serializer import BillsSerializer, CategoriesSerializer, DishesProductsSerializer, DishesSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer, Permission2Serializer, GroupSerializer, UserGroupSerializer
 from .models import Bills, Categories, Dishes, DishesProducts, DishesVariants, Notifications, Orders, OrdersHasDishes, User
 from django.contrib.auth.models import Group, Permission
 
@@ -340,6 +340,7 @@ class GroupView(APIView):
     def get(self, request,pk,uk):
         requier_perms = ['view_group']
         refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        print(refresh_token)
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
@@ -364,13 +365,12 @@ class AddPermissionToGroup(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = PermissionSerializer(data=request.data, partial=True)
+        serializer = Permission2Serializer(data=request.data)
         if serializer.is_valid():
-            group_id = serializer.validated_data['group_id']
-            permission_codename = serializer.validated_data['permission_codename']
-
+            group_id = serializer.validated_data.get('group_id')
+            permission_codename = serializer.validated_data.get('permission_codename')
             try:
-                group = Group.objects.get(pk=group_id)
+                group = Group.objects.get(id=group_id)
                 permission = Permission.objects.get(codename=permission_codename)
 
                 group.permissions.add(permission)
@@ -391,11 +391,10 @@ class AddPermissionToUser(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = PermissionSerializer(data=request.data, partial=True)
+        serializer = Permission2Serializer(data=request.data, partial=True)
         if serializer.is_valid():
-            user_id = serializer.validated_data['user_id']
-            permission_codename = serializer.validated_data['permission_codename']
-
+            user_id = serializer.validated_data.get('user_id')
+            permission_codename = serializer.validated_data.get('permission_codename')
             try:
                 user = User.objects.get(pk=user_id)
                 permission = Permission.objects.get(codename=permission_codename)
@@ -418,7 +417,7 @@ class RemovePermissionFromGroup(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = PermissionSerializer(data=request.data, partial=True)
+        serializer = Permission2Serializer(data=request.data, partial=True)
         if serializer.is_valid():
             group_id = serializer.validated_data['group_id']
             permission_codename = serializer.validated_data['permission_codename']
@@ -445,7 +444,7 @@ class RemovePermissionFromUser(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = PermissionSerializer(data=request.data, partial=True)
+        serializer = Permission2Serializer(data=request.data, partial=True)
         if serializer.is_valid():
             user_id = serializer.validated_data['user_id']
             permission_codename = serializer.validated_data['permission_codename']
@@ -484,6 +483,27 @@ class PermissionsView(APIView):
         ]
 
         return Response({'permissions': permissions_list})
+    
+class UserGroupView(APIView):
+    def get(self, request, pk):
+        requier_perms = ['view_group', 'view_user']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if pk == 1:
+            # Zwraca listę użytkowników w grupie wraz z nazwą grupy
+            users_in_group = User.objects.filter(groups__isnull=False).distinct()
+            serializer = UserGroupSerializer(users_in_group, many=True)
+            return Response({'users': serializer.data})
+        elif pk == 0:
+            # Zwraca listę użytkowników, którzy nie są w żadnej grupie
+            users_not_in_group = User.objects.filter(groups__isnull=True)
+            serializer = UserGroupSerializer(users_not_in_group, many=True)
+            return Response({'users': serializer.data})
+        else:
+            # Obsługuje inne przypadki
+            return Response({'error': 'Invalid value for pk'}, status=status.HTTP_400_BAD_REQUEST)
 
 #prośba o wyświetlenie permisji wybranego użytkownika
 class UserPermissionsView(APIView):
