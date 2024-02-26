@@ -575,6 +575,19 @@ class NotificationsView(APIView):
             return Response({'message': 'Brak powiadomień'}, status=status.HTTP_404_NOT_FOUND)
         serializer = NotificationsSerializer(NotificationSet, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class CheckNotificationsView(APIView):
+    def get(self, request):
+        requier_perms = ['view_notifications']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if Notifications.objects.filter(To = id).exclude( status = 2).exists():
+            noti = True
+        else:
+            noti = False
+        return Response({'notification': noti}, status=status.HTTP_200_OK)
 
 #Prośba o wyświetlenie danych wybranego lub wzystkich użytkowników 
 class UserView(APIView):
