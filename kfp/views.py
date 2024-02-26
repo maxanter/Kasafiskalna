@@ -485,25 +485,33 @@ class PermissionsView(APIView):
         return Response({'permissions': permissions_list})
     
 class UserGroupView(APIView):
-    def get(self, request, pk):
+    def get(self, request, pk, is_member):
         requier_perms = ['view_group', 'view_user']
         refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        if pk == 1:
-            # Zwraca listę użytkowników w grupie wraz z nazwą grupy
-            users_in_group = User.objects.filter(groups__isnull=False).distinct()
-            serializer = UserGroupSerializer(users_in_group, many=True)
-            return Response({'users': serializer.data})
-        elif pk == 0:
-            # Zwraca listę użytkowników, którzy nie są w żadnej grupie
-            users_not_in_group = User.objects.filter(groups__isnull=True)
-            serializer = UserGroupSerializer(users_not_in_group, many=True)
-            return Response({'users': serializer.data})
-        else:
-            # Obsługuje inne przypadki
+        try:
+            group_id = int(pk)
+        except ValueError:
             return Response({'error': 'Invalid value for pk'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            group = Group.objects.get(pk=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if is_member.lower() == 'true':
+            # Zwraca listę użytkowników, którzy należą do grupy
+            users = User.objects.filter(groups=group)
+        elif is_member.lower() == 'false':
+            # Zwraca listę użytkowników, którzy nie należą do grupy
+            users = User.objects.exclude(groups=group)
+        else:
+            return Response({'error': 'Invalid value for is_member'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = UserSerializer(users, many=True)
+        return Response({'users': serializer.data})
 
 #prośba o wyświetlenie permisji wybranego użytkownika
 class UserPermissionsView(APIView):

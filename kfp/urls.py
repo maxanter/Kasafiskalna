@@ -32,7 +32,7 @@ urlpatterns = [
     path('Notifications', NotificationsView.as_view()),
     path('Users/<int:pk>/<int:gk>/', UserView.as_view()),
     path('Groups/<int:pk>/<int:uk>/', GroupView.as_view()),
-    path('UserGroup/<int:pk>/', UserGroupView.as_view()),
+    path('UserGroup/<int:pk>/<str:is_member>/', UserGroupView.as_view()),
     path('CreateNotification', CreateNotification.as_view()),
     path('ViewedNotification/<int:pk>/', ViewedNotification.as_view()),
     path('RemoveUser/<int:pk>/', RemoveUser.as_view()),
