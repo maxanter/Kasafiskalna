@@ -365,7 +365,7 @@ class AddPermissionToGroup(APIView):
         id = decode_refresh_token(refresh_token)
         if not check_perms(id=id, requier_perms=requier_perms):
             raise exceptions.APIException('access denied')
-        serializer = Permission2Serializer(data=request.data)
+        serializer = Permission2Serializer(data=request.data, partial=True)
         if serializer.is_valid():
             group_id = serializer.validated_data.get('group_id')
             permission_codename = serializer.validated_data.get('permission_codename')
