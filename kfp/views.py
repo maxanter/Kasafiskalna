@@ -482,7 +482,7 @@ class PermissionsView(APIView):
             for permission in permissions
         ]
 
-        return Response({'permissions': permissions_list})
+        return Response({'permissions': permissions_list}, status=status.HTTP_200_OK)
     
 class UserGroupView(APIView):
     def get(self, request, pk, is_member):
@@ -511,7 +511,7 @@ class UserGroupView(APIView):
             return Response({'error': 'Invalid value for is_member'}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = UserSerializer(users, many=True)
-        return Response({'users': serializer.data})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 #prośba o wyświetlenie permisji wybranego użytkownika
 class UserPermissionsView(APIView):
