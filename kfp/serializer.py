@@ -26,11 +26,12 @@ class UserDetailsSerializer(ModelSerializer):
     last_name = serializers.CharField(max_length=255, allow_null=True)
     class Meta:
         model = User
-        fields = ['id','hired_time', 'phone_no', 'first_name', 'last_name', 'username', 'email', 'last_login']
+        fields = ['id','hired_time', 'fired_time', 'phone_no', 'first_name', 'last_name', 'username', 'email', 'last_login']
         extra_kwargs = {
             'password': {'write_only': True},
             'last_login': {'read_only': True},
             'hired_time': {'read_only': True},
+            'fired_time': {'read_only': True},
         }
     def update(self, instance, validated_data):
         new_password = validated_data.get('password')
