@@ -572,8 +572,9 @@ class NotificationsView(APIView):
 
         NotificationSet = Notifications.objects.filter(To = id).exclude(status = 2)
         if not NotificationSet.exists():
-            return Response({'message': 'Brak powiadomień'}, status=status.HTTP_404_NOT_FOUND)
+            return Response([], status=status.HTTP_200_OK)
         serializer = NotificationsSerializer(NotificationSet, many=True)
+        
         return Response(serializer.data, status=status.HTTP_200_OK)
     
 class CheckNotificationsView(APIView):
