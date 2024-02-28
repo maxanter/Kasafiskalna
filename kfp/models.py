@@ -46,6 +46,11 @@ class Dishes(models.Model):
         decimal_places=2,
         null=True
     )
+    vat = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=True
+    )
 
 class DishesProducts(models.Model):
     Dish = models.ForeignKey(Dishes, on_delete=models.CASCADE, null=False)
