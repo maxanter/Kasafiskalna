@@ -17,18 +17,28 @@ def decode_access_token(token):
     except:
         raise exceptions.AuthenticationFailed('unauthenticated')
 
+#Stwórz token
 def create_refresh_token(id):
+    #Zwróć zaszyfrowany kod zawierający w sobie informacke:
+    # - id uzytkownika
+    # - ilość czasu jak długo token ma być aktywny
+    # - od kiedy token ma być aktywny
+    # - do zaszyfrowania został użyty algorytm Hash 256
+    # - klucz prywatny to 'refresh_secret'
     return jwt.encode({
         'user_id': id,
         'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7),
         'iat': datetime.datetime.utcnow()
     }, 'refresh_secret', algorithm='HS256')
 
+#Odszyfruj token
 def decode_refresh_token(token):
     try:
+        # Odszyfruj token używając klucza prywatnego
         payload = jwt.decode(token, 'refresh_secret', algorithms='HS256')
-
+        #Zwróć id użytkownika
         return payload['user_id']
     except:
+        #zwróć wyjątek jeżeli token nie jest poprawny
         raise exceptions.AuthenticationFailed('unauthenticated')
 

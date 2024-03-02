@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.db.models import Q, Sum
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-
+from datetime import datetime, timedelta
 from .authentication import create_access_token, create_refresh_token, decode_refresh_token
 from .autorization import check_perms
 from .serializer import BillsSerializer, CategoriesSerializer, DishesProductsSerializer, DishesSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer, Permission2Serializer, GroupSerializer, UserGroupSerializer
@@ -15,20 +15,37 @@ from .models import Bills, Categories, Dishes, DishesProducts, DishesVariants, N
 from django.contrib.auth.models import Group, Permission
 
 #dodatkowe funkcje
+# Stwórz powiadomienia do użytkowników, którzy mogą odebrać zamówienie
 def create_notifications():
-    orders_to_notify = Orders.objects.filter(ordershasdishes__done=True)
-
+    # Uzyskaj dzisiejszą datę
+    today = datetime.now().date()
+    # Oblicz datę od północy do teraz (czyli od początku dnia do obecnej chwili)
+    start_of_day = datetime.combine(today, datetime.min.time())
+    end_of_day = datetime.combine(today, datetime.max.time())
+    # Filtruj pozycje z zamówienia utworzone dzisiaj, które mają status done jako true
+    orders_to_notify = Orders.objects.filter(
+        Q(time__gte=start_of_day) & Q(time__lte=end_of_day) & Q(ordershasdishes__done=True)
+    )
+    # Sprawdź, czy są zamówienia z ustawionym statusem done
+    if not orders_to_notify.exists():
+        return  # Zakończ funkcję, jeżeli nie ma zamówień do powiadomienia
+    
     notifications_to_create = []
     for order in orders_to_notify:
+        # Sprawdź istniejące powiadomienia dla zamówienia
         existing_notifications_count = Notifications.objects.filter(Order=order).count()
+        # Zlicz wykonane dania w zamówieniu
         dishes_count = OrdersHasDishes.objects.filter(Order=order, done=True).count()
-
+        # Oblicz pozostałe do utworzenia powiadomienia
         remaining_notifications = dishes_count - existing_notifications_count
 
         if remaining_notifications > 0:
+            # Sprawdź już istniejące zamówienia dla powiadomień
             existing_notification_orders = Notifications.objects.filter(Order=order).values_list('Order_id', flat=True)
             remaining_notification_orders = set(OrdersHasDishes.objects.filter(Order=order, done=True).values_list('Order_id', flat=True))
+            # Pobierz użytkownika (kelnera) powiązanego z zamówieniem
             user = User.objects.get(pk = order.waiter_id)
+            # Dodaj powiadomienia do utworzenia
             notifications_to_create.extend([
                 Notifications(
                     To=user,
@@ -37,7 +54,7 @@ def create_notifications():
                     Order=order
                 ) for _ in range(remaining_notifications) if order.Order not in existing_notification_orders
             ])
-
+    # Utwórz powiadomienia masowo
     Notifications.objects.bulk_create(notifications_to_create)
 
 
@@ -559,20 +576,31 @@ class GroupPermissionsView(APIView):
         except Group.DoesNotExist:
             return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
 
-#Prośba o wyświetlenie powiadomień dla użytkownika 
+# Prośba o wyświetlenie powiadomień dla użytkownika 
+# Endpoint wywoływany cyklicznie co 10 sekund przez każdego aktywnego użytkownika
 class NotificationsView(APIView):
     def get(self,request):
+        # Sekcja 1:
+        # Sprawdź, czy użytkownik ma poprawny token
+        # ista z wymaganymi uprawnieniami
         requier_perms = ['view_notifications']
+        # przystusuj token do późniejszego sprawdzenia jego autentyczności
         refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        # Sprawdź czy token jest poprawny i zwróć id użytkownika
         id = decode_refresh_token(refresh_token)
+        # Na bazie id oraz wymaganych uprawnień sprawdź czy użytkownikowi wolno korzystać z endpointu
         if not check_perms(id=id, requier_perms=requier_perms):
+            # Jeżeli nie, zwróć wyjątek
             raise exceptions.APIException('access denied')
-        
+        # Jeżeli tak, wykonaj restę kodu
+        # Sprawdź czy zamówienie jest do odebrania, jeżeli tak, stwórz powiadomienie do kelnera
         create_notifications()
-
+        # Sprawdź czy użytkownik posiada nie przeczytane powiadomienia
         NotificationSet = Notifications.objects.filter(To = id).exclude(status = 2)
         if not NotificationSet.exists():
+            # Jeżeli nie posiada, zwróć pustą listę
             return Response([], status=status.HTTP_200_OK)
+        # Jeżeli tak, zwróć wszystkie nie przeczytane powiadomienia
         serializer = NotificationsSerializer(NotificationSet, many=True)
         
         return Response(serializer.data, status=status.HTTP_200_OK)

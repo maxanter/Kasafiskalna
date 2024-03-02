@@ -8,7 +8,7 @@ from django.utils import timezone
 def images_path(instance, filename):
     return os.path.join(settings.LOCAL_FILE_DIR, 'images', filename)
 
-#Manualna deklaracja tebeli Użytkowników
+#Manualna deklaracja modelu Użytkowników
 class User(AbstractUser):
     username = models.CharField(max_length=255, unique=True)
     password = models.CharField(max_length=255, null=False)

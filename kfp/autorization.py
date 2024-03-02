@@ -1,19 +1,15 @@
-"""
-
-def check_perms(id, requier_perms):
-    user = User.objects.get(id = id)
-    has_permision = user.has_perms(requier_perms)
-    return has_permision
-"""
-
 from .models import User
 from django.db import connection
 
+# Sprawdź czy użytkownik ma odpowiednie uprawnienia
+# requier_perms - lista wymaganych uprawnień
 def check_perms(id, requier_perms):
     user = User.objects.get(id = id)
+    # Sprawdź czy użytkownik posiada uprawnienia w modelu używając predefiniowanej funkcji django
     has_permision = user.has_perms(requier_perms)
     if has_permision:
         return True
+    # Sprawdź, czy uzytkownik posiada uprawnienia w bazie danych
     try:
         with connection.cursor() as cursor:
             # Sprawdź, czy użytkownik ma co najmniej jedno z wymaganych uprawnień
@@ -25,17 +21,15 @@ def check_perms(id, requier_perms):
                     [kod_uprawnienia]
                 )
                 permission_result = cursor.fetchone()
-                print(f"Permission Result: {permission_result}")
 
                 if permission_result:
-                    # Sprawdź, czy użytkownik ma to uprawnienie indywidualnie
+                    # Sprawdź, czy użytkownik ma to uprawnienie
                     cursor.execute(
                         "SELECT * FROM kfp_user_user_permissions "
                         "WHERE user_id = %s AND permission_id = %s",
                         [id, permission_result[0]]
                     )
                     user_has_permission = cursor.fetchone()
-                    print(f"User Has Permission: {user_has_permission}")
 
                     if user_has_permission:
                         return True
@@ -49,12 +43,11 @@ def check_perms(id, requier_perms):
                     [id, permission_result[0]]
                 )
                 group_has_permission = cursor.fetchone()
-                print(f"Group Has Permission: {group_has_permission}")
 
                 if group_has_permission:
                     return True
 
             return False
-    except Exception as e:
-        print(f"Błąd: {e}")
+    # Jeżeli coś poszło nie tak, zwróć błąd jako false
+    except Exception:
         return False
