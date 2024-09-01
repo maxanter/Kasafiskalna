@@ -1,50 +1,64 @@
-from django.contrib.auth.models import Group, Permission
+from datetime import timedelta
+from rest_framework import exceptions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.exceptions import APIException 
+from django.utils import timezone
 from django.db.models import Q, Sum
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from django.core.cache import cache
-from django.conf import settings
-from rest_framework import status, exceptions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.exceptions import APIException
-from .models import (Categories, Dishes, DishesProducts, 
-                    DishesVariants, Orders, OrdersHasDishes, 
-                    Bills, Notifications, User)
-from .serializer import (BillsSerializer, CategoriesSerializer, 
-                        DishesProductsSerializer, DishesSerializer, 
-                        DishesVariantsSerializer, NotificationsSerializer,
-                        OrderStartSerializer, OrdersDetailsSerializer, 
-                        PendingOrderDetailsSerializer, OrdersHasDishesSerializer, 
-                        UserDetailsSerializer, PermissionSerializer, 
-                        UserSerializer, Permission2Serializer, GroupSerializer)
-from datetime import timedelta
-from .autorization import check_perms
+from datetime import datetime, timedelta
 from .authentication import create_access_token, create_refresh_token, decode_refresh_token
+from .autorization import check_perms
+from .serializer import BillsSerializer, CategoriesSerializer, DishesNotesSerializer, DishesProductsSerializer, DishesSerializer, DishesStatusSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer, Permission2Serializer, GroupSerializer, UserGroupSerializer
+from .models import Bills, Categories, Dishes, DishesNotes, DishesProducts, DishesStatus, DishesVariants, Notifications, Orders, OrdersHasDishes, User
+from django.contrib.auth.models import Group, Permission
 
-class PermissionRequiredMixin:
-    required_permissions = []
+#dodatkowe funkcje
+# Stwórz powiadomienia do użytkowników, którzy mogą odebrać zamówienie
+def create_notifications():
+    today = datetime.now().date()
+    start_of_day = datetime.combine(today, datetime.min.time())
+    end_of_day = datetime.combine(today, datetime.max.time())
+    orders_to_notify = Orders.objects.filter(
+        Q(time__gte=start_of_day) & Q(time__lte=end_of_day) & Q(ordershasdishes__done=True)
+    )
+    if not orders_to_notify.exists():
+        return  # Zakończ funkcję, jeżeli nie ma zamówień do powiadomienia
+    
+    notifications_to_create = []
+    for order in orders_to_notify:
+        existing_notifications_count = Notifications.objects.filter(Order=order).count()
+        dishes_count = OrdersHasDishes.objects.filter(Order=order, done=True).count()
+        remaining_notifications = dishes_count - existing_notifications_count
 
-    def check_permissions(self, request):
-        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
-        print(refresh_token)
-        id = decode_refresh_token(refresh_token)
-        print(self.required_permissions)
-        if not check_perms(id, self.required_permissions):
-            raise exceptions.PermissionDenied('Access denied')
-        return id
+        if remaining_notifications > 0:
+            existing_notification_orders = Notifications.objects.filter(Order=order).values_list('Order_id', flat=True)
+            remaining_notification_orders = set(OrdersHasDishes.objects.filter(Order=order, done=True).values_list('Order_id', flat=True))
+            user = User.objects.get(pk = order.waiter_id)
+            notifications_to_create.extend([
+                Notifications(
+                    To=user,
+                    notification='Gotowe',
+                    status=Notifications.Status.WARNING,
+                    Order=order
+                ) for _ in range(remaining_notifications) if order.Order not in existing_notification_orders
+            ])
+    Notifications.objects.bulk_create(notifications_to_create)
 
-class RegisterLoginAPIView(APIView):
-    required_permissions = []
 
+
+#Rejestracja użytkownika
+class RegisterAPIView(APIView):
     def post(self, request):
         serializer = UserSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
-    
-    def get(self, request):
+
+#Logowanie użytkownika
+class LoginAPIView(APIView):
+    def post(self, request):
         user = User.objects.filter(username=request.data['username']).first()
 
         if not user:
@@ -58,7 +72,7 @@ class RegisterLoginAPIView(APIView):
 
         user.last_login = timezone.now() + timedelta(hours=1)
         user.save()
-        print(user.id)
+
         access_token = create_access_token(user.id)
         refresh_token = create_refresh_token(user.id)
 
@@ -69,9 +83,39 @@ class RegisterLoginAPIView(APIView):
             'token': access_token,
             'refreshToken': refresh_token
         }
+
         return response
-    
-    def delete(self, request):
+
+#Prośba o dane użytkownika
+class UserAPIView(APIView):
+    def get(self, request):
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        print(id)
+        user = User.objects.filter(pk=id).first()
+
+        serializer = UserDetailsSerializer(user)
+
+        return Response(serializer.data)
+
+#Prośba o wygenerowanie tokenu dostępu
+class RefreshApiView(APIView):
+    def post(self, request):
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        access_token = create_access_token(id)
+
+        user = User.objects.get(pk = id)
+        user.last_login = timezone.now() + timedelta(hours=1)
+        user.save()
+
+        return Response({
+            'token': access_token
+        })
+
+#Prośba o usunięcie tokenu odświeżania
+class LogoutApiView(APIView):
+    def post(self, request):
         refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
         id = decode_refresh_token(refresh_token)
         user = User.objects.get(pk = id)
@@ -84,233 +128,173 @@ class RegisterLoginAPIView(APIView):
         }
         return response
     
-class UserAPIView(PermissionRequiredMixin, APIView):
-    def get(self, request):
-        id = self.check_permissions(request)
-        user = User.objects.filter(pk=id).first()
-
-        serializer = UserDetailsSerializer(user)
-
-        return Response(serializer.data)
-
-
-class CategoriesView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+#Prośba o wyświetlenie wszystkich lub wybranej kategorii
+class CategoriesView(APIView):
     def get(self, request, pk, hk):
-        self.required_permissions = ['view_categories']
-        id = self.check_permissions(request)
-
-        cache_key = f'categories_{pk}_{hk}'
-        queryset = cache.get(cache_key)
-        if queryset is None:
-            if hk == 0:
-                queryset = Categories.objects.filter(pk=pk) if pk != 0 else Categories.objects.all()
+        requier_perms = ['view_categories']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if hk == 0:
+            if pk == 0:
+                queryset = Categories.objects.all()
             else:
-                queryset = Categories.objects.filter(higher_category=hk)
-
-            cache.set(cache_key, queryset, timeout=settings.CACHE_TIMEOUT)
-
+                queryset = Categories.objects.filter(pk=pk)
+        else:
+            queryset = Categories.objects.filter(higher_category = hk)   
         serializer = CategoriesSerializer(queryset, many=True)
-        return Response(serializer.data)
-    
-    def post(self, request, format=None):
-        self.required_permissions = ['add_categories']
-        id = self.check_permissions(request)
-        serializer = CategoriesSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            category = Categories.objects.get(name = request.data.get('name'))
-            serializer2 = DishesSerializer(category, many = False)
-            return Response(serializer2.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def patch(self, request, pk, format=None):
-        self.required_permissions = ['change_categories']
-        id = self.check_permissions(request)
-        category = Categories.objects.get(pk=pk)
-        serializer = CategoriesSerializer(category, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-    def delete(self, request, pk, format=None):
-        self.required_permissions = ['delete_categories']
-        id = self.check_permissions(request)
-        queryset = Categories.objects.get(pk=pk)
-        queryset.delete()
-        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
-
-
-class DishesView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+        return Response(serializer.data, status=status.HTTP_200_OK)
+                 
+#Prośba o wyświetlenie wszystkich lub wybranej pozycji z menu
+class DishesView(APIView):
     def get(self, request, pk, kk):
-        self.required_permissions = ['view_dishes']
-        id = self.check_permissions(request)
-
-        cache_key = f'dishes_{pk}_{kk}'
-        queryset = cache.get(cache_key)
-
-        if queryset is None:
-            if kk == 0:
-                queryset = Dishes.objects.filter(D_no=pk).select_related('category') if pk != 0 else Dishes.objects.all().select_related('category')
+        requier_perms = ['view_dishes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if kk == 0:
+            if pk == 0:
+                queryset = Dishes.objects.all()
             else:
-                queryset = Dishes.objects.filter(category=kk).select_related('category')
-            cache.set(cache_key, queryset, timeout=settings.CACHE_TIMEOUT)
+                queryset = Dishes.objects.filter(D_no=pk)
+        else:
+            queryset = Dishes.objects.filter(category = kk)
+            
         serializer = DishesSerializer(queryset, many=True)
-        return Response(serializer.data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def post(self, request, format=None):
-        self.required_permissions = ['add_dishes']
-        id = self.check_permissions(request)
-        serializer = DishesSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            dish = Dishes.objects.get(name = request.data.get('name'))
-            serializer2 = DishesSerializer(dish, many = False)
-            return Response(serializer2.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def patch(self, request, pk, format=None):
-        self.required_permissions = ['change_dishes']
-        id = self.check_permissions(request)
-        dish = Dishes.objects.get(pk=pk)
-        serializer = DishesSerializer(dish, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, pk, format=None):
-        self.required_permissions = ['delete_dishes']
-        id = self.check_permissions(request)
-        queryset = Dishes.objects.get(pk=pk)
-        queryset.delete()
-        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
-
-class DishesProductsView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+#Prośba o wyświetlenie wszytswkich produktów lub produktów należących do jednaj pozycji w menu
+class DishesProductsView(APIView):
     def get(self, request, pk, dk):
-        self.required_permissions = ['view_dishesproducts']
-        id = self.check_permissions(request)
-
-        cache_key = f'dishes_products_{pk}_{dk}'
-        queryset = cache.get(cache_key)
-        if queryset is None:
-            if dk == 0:
-                queryset = DishesProducts.objects.filter(pk=pk).select_related('Dish') if pk != 0 else DishesProducts.objects.all().select_related('Dish')
+        requier_perms = ['view_dishesproducts']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if dk == 0:
+            if pk == 0:
+                queryset = DishesProducts.objects.all()
             else:
-                queryset = DishesProducts.objects.filter(Dish=dk).select_related('Dish')
-            cache.set(cache_key, queryset, timeout=settings.CACHE_TIMEOUT)
+                queryset = DishesProducts.objects.filter(pk=pk)
+        else:
+            queryset = DishesProducts.objects.filter(Dish=dk)
         serializer = DishesProductsSerializer(queryset, many=True)
-        return Response(serializer.data)
-    
-    def post(self, request, format=None):
-        self.required_permissions = ['add_dishesproducts']
-        id = self.check_permissions(request)
-        serializer = DishesProductsSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def patch(self, request, pk, format=None):
-        self.required_permissions = ['change_dishesproducts']
-        id = self.check_permissions(request)
-        dishes_products = DishesProducts.objects.get(pk=pk)
-        serializer = DishesProductsSerializer(dishes_products, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, pk, format=None):
-        self.required_permissions = ['delete_dishesproducts']
-        id = self.check_permissions(request)
-        queryset = DishesProducts.objects.get(pk=pk)
-        queryset.delete()
-        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class DishesVariantsView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+#Prośba o wyświetlenie wszytswkich wariantów lub wariantów należących do jednaj pozycji w menu
+class DishesVariantsView(APIView):
     def get(self, request, pk, dk):
-        self.required_permissions = ['view_dishesvariants']
-        id = self.check_permissions(request)
-        
-        cache_key = f'dishes_variants_{pk}_{dk}'
-        queryset = cache.get(cache_key)
-        
-        if queryset is None:
-            if dk == 0:
-                queryset = DishesVariants.objects.filter(pk=pk).select_related('Dish') if pk != 0 else DishesVariants.objects.all().select_related('Dish')
+        requier_perms = ['view_dishesvariants']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if dk == 0:
+            if pk == 0:
+                queryset = DishesVariants.objects.all()
             else:
-                queryset = DishesVariants.objects.filter(Dish=dk).select_related('Dish')
-            cache.set(cache_key, queryset, timeout=settings.CACHE_TIMEOUT)
-        
+                queryset = DishesVariants.objects.filter(pk=pk)
+        else:
+            queryset = DishesVariants.objects.filter(Dish=dk)
         serializer = DishesVariantsSerializer(queryset, many=True)
-        return Response(serializer.data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def post(self, request, format=None):
-        self.required_permissions = ['add_dishesvariants']
-        id = self.check_permissions(request)
-        serializer = DishesVariantsSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def patch(self, request, pk, format=None):
-        self.required_permissions = ['change_dishesvariants']
-        id = self.check_permissions(request)
-        dishes_variants = DishesVariants.objects.get(pk=pk)
-        serializer = DishesVariantsSerializer(dishes_variants, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, pk, format=None):
-        self.required_permissions = ['delete_dishesvariants']
-        id = self.check_permissions(request)
-        queryset = DishesVariants.objects.get(pk=pk)
+class DishesStatusView(APIView):
+    def get(self, request, pk):
+        requier_perms = ['view_dishesstatus']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if not Dishes.objects.filter(pk=pk).exists():
+            raise exceptions.APIException('Dish does not exist')
+        queryset = DishesStatus.objects.filter(Dish=pk)
+        serializer = DishesStatusSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    def post(self, request, pk):
+        requier_perms = ['add_dishesstatus']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if not Dishes.objects.filter(pk=pk).exists():
+            raise exceptions.APIException('Dish does not exist')
+        serializer = DishesStatusSerializer(data=request.data)
+        return Response(status=status.HTTP_201_CREATED)
+    def delete(self, request, pk):
+        requier_perms = ['delete_dishesstatus']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        queryset = DishesStatus.objects.filter(pk=pk)
         queryset.delete()
-        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
+class DishesNotesView(APIView):
+    def get(self, request, pk):
+        requier_perms = ['view_dishesnotes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if not Dishes.objects.filter(pk=pk).exists():
+            raise exceptions.APIException('Dish does not exist')
+        queryset = DishesNotes.objects.filter(Dish=pk)
+        serializer = DishesNotesSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    def post(self, request, pk):
+        requier_perms = ['add_dishesnotes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if not Dishes.objects.filter(pk=pk).exists():
+            raise exceptions.APIException('Dish does not exist')
+        serializer = DishesNotesSerializer(data=request.data)
+        return Response(status=status.HTTP_201_CREATED)
+    def delete(self, request, pk):
+        requier_perms = ['delete_dishesnotes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        queryset = DishesNotes.objects.filter(pk=pk)
+        queryset.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    
 
-class OrdersDetailsView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+#Prośba o wyświetlenie wszystkich lub wybranego zamówienia
+class OrdersDetailsView(APIView):
     def get(self, request, pk, uk):
-        self.required_permissions = ['view_orders']
-        id = self.check_permissions(request)
+        requier_perms = ['view_orders']
+        print(request.headers.get('Authorization'))
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        
         if uk == 0:
             if pk == 0:
-                queryset = Orders.objects.select_related('waiter').prefetch_related('ordershasdishes_set').filter(bills__isnull=True)
+                queryset = Orders.objects.filter(bills__isnull=True)
             else:
-                queryset = Orders.objects.select_related('waiter').prefetch_related('ordershasdishes_set').filter(pk=pk, bills__isnull=True)
+                queryset = Orders.objects.filter(pk=pk, bills__isnull=True)
         else:
-            queryset = Orders.objects.select_related('waiter').prefetch_related('ordershasdishes_set').filter(waiter = uk, bills__isnull=True)
+            queryset = Orders.objects.filter(waiter = uk, bills__isnull=True)
         serializer = OrdersDetailsSerializer(queryset, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK) 
+        return Response(serializer.data, status=status.HTTP_200_OK)    
 
-    def delete(self, request, pk):
-        self.required_permissions = ['delete_orders']
-        id = self.check_permissions(request)
-        Order = get_object_or_404(Orders, pk = pk)
-
-        if OrdersHasDishes.objects.filter(Order = pk).exists():
-            return Response({'error': 'Nie można usunąć zamówienia, które posiada pozycje'}, status=status.HTTP_400_BAD_REQUEST)
-        Order.delete()
-
-        return Response({'message': 'Zamówienie zostało pomyślnie usunięte'}, status=status.HTTP_200_OK)
-
-
-class OrdershasDishesView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+#Prośba o wyświetlenie wszystki pozycji z zamówień lub wybranej
+class OrdershasDishesView(APIView):
     def get(self, request, pk, ok):
-        self.required_permissions = ['view_orders']
-        id = self.check_permissions(request)
+        requier_perms = ['view_orders']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         if ok == 0:
             if pk == 0:
                 queryset = OrdersHasDishes.objects.all()
@@ -321,60 +305,36 @@ class OrdershasDishesView(PermissionRequiredMixin, APIView):
             
         serializer = OrdersHasDishesSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
-    def delete(self, request, pk):
-        self.required_permissions = ['delete_orders']
-        id = self.check_permissions(request)
-        Order = get_object_or_404(OrdersHasDishes, pk=pk)
 
-        if Order.done == True:
-            return Response({'error': 'Nie można usunąć Zamówienia, które zostało już wykonane!'}, status=status.HTTP_400_BAD_REQUEST)
-        Order.delete()
-
-        return Response({'message': 'Zamówienie zostało pomyślnie usunięte'}, status=status.HTTP_200_OK)
-
-class BillsView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+#Prośba o wyświetlenie wszytskich rachunków, lub wybranego
+class BillsView(APIView):
     def get(self, request, pk, uk):
-        self.required_permissions = ['view_orders']
-        id = self.check_permissions(request)
+        requier_perms = ['view_orders']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         if uk == 0:
             if pk == 0:
-                queryset = Bills.objects.all().select_related('order', 'waiter')
+                queryset = Bills.objects.all()
             else:
                 queryset = Bills.objects.get(pk=pk)
         else:
-            queryset = Bills.objects.filter(waiter = uk).select_related('order', 'waiter')
+            queryset = Bills.objects.filter(waiter = uk)
            
         serializer = BillsSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def post(self, request, pk):
-        self.required_permissions = ['add_bills']
-        id = self.check_permissions(request)
-        if Orders.objects.filter(pk = pk).exists() == False:
-            return Response({'error': 'Nie ma takiego zamówienia'}, status=status.HTTP_404_NOT_FOUND)
-        if OrdersHasDishes.objects.filter(Order = pk).exists() == False:
-            return Response({'error': 'To zamówienie nie ma pozycji'}, status=status.HTTP_404_NOT_FOUND)
-        total_cost = OrdersHasDishes.objects.filter(Order_id=pk).aggregate(Sum('Dish__Cost'))['Dish__Cost__sum']
-        order = Orders.objects.get(Order = pk)
-        waiter = User.objects.get(pk = id)
-        if Bills.objects.filter(order = order).exists():
-            return Response({'error': 'Taki rachunek już istnieje'}, status=status.HTTP_400_BAD_REQUEST)
-        Bills.objects.create(order = order, waiter = waiter, Cost = total_cost)
-        
-        ofbill = Bills.objects.get(order = order)
-        serializer = BillsSerializer(ofbill, many = False)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-
-class KitchenOrdersView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+#Prośba o szczegółowe wyświetlenie wszystkich pozycji zamówień lub wybranego na bazie zamówienia
+class KitchenOrdersView(APIView):
     def get(self, request, pk):
-        self.required_permissions = ['view_orders', 'view_ordershasdishes']
-        id = self.check_permissions(request)
+        requier_perms = ['view_orders', 'view_ordershasdishes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         if pk==0:
-            queryset = OrdersHasDishes.objects.filter(done=False).select_related('Order', 'Dish', 'Variant').filter(
+            queryset = OrdersHasDishes.objects.filter(done=False).filter(
                 Q(Order__isnull=False) & Q(Dish__isnull=False) & Q(Variant__isnull=False)
             )
         else:
@@ -382,11 +342,16 @@ class KitchenOrdersView(PermissionRequiredMixin, APIView):
                 Q(Order__isnull=False) & Q(Dish__isnull=False) & Q(Variant__isnull=False)
             )
         serializer = PendingOrderDetailsSerializer(queryset, many=True)
-        return Response(serializer.data)
-    
+        return Response({'Orders': serializer.data})
+
+#Prośba o zmianienie statusu pozycji zamówienia na wykonane 
+class UpdateDoneStatusAPIView(APIView):
     def put(self, request, pk, format=None):
-        self.required_permissions = ['change_ordershasdishes']
-        id = self.check_permissions(request)
+        requier_perms = ['change_ordershasdishes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         try:
             order_has_dish = OrdersHasDishes.objects.get(pk=pk)
         except OrdersHasDishes.DoesNotExist:
@@ -397,16 +362,24 @@ class KitchenOrdersView(PermissionRequiredMixin, APIView):
 
         serializer = OrdersHasDishesSerializer(order_has_dish)
         return Response(serializer.data)
-    
+
+#Prośba o rozpoczęcie nowego zamowienia nowego zamówienia
+class KitchenOrderStartView(APIView):
     def post(self, request):
-        self.required_permissions = ['add_orders']
-        id = self.check_permissions(request)
+        requier_perms = ['add_orders']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         serializer = OrderStartSerializer(data = request.data)
         if serializer.is_valid():
             table = serializer.validated_data['table']
-            Orders.objects.create(waiter_id = id, table = table)
+            #waiter = User.objects.get(pk = id)
+            order = Orders.objects.create(waiter_id = id, table = table)
+            #order.save()
             latest_order = Orders.objects.filter(waiter=id).latest('time')
 
+            print(latest_order.pk)
             response_data = {
                 'Order': latest_order.pk
             }
@@ -414,11 +387,16 @@ class KitchenOrdersView(PermissionRequiredMixin, APIView):
             return Response(response_data, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
+#Prośba o dodanie jednej lub więcej pozycji do zamówienia
+class KitchenOrderCreateView(APIView):
     @transaction.atomic
-    def patch(self, request):
-        self.required_permissions = ['add_orders']
-        id = self.check_permissions(request)
+    def post(self, request):
+        requier_perms = ['add_orders']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         serializer = OrdersHasDishesSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -429,80 +407,35 @@ class KitchenOrdersView(PermissionRequiredMixin, APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class GroupView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+class GroupView(APIView):
     def get(self, request,pk,uk):
-        self.required_permissions = ['view_group']
-        id = self.check_permissions(request)
-        
-        cache_key = f'group_{pk}_{uk}'
-        group = cache.get(cache_key)
-        
-        if group is None:
-            if uk == 0:
-                if pk == 0:
-                    group = Group.objects.all().prefetch_related('permissions')
-                else:
-                    group = Group.objects.filter(pk=pk).prefetch_related('permissions')
+        requier_perms = ['view_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        print(refresh_token)
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if uk == 0:
+            if pk == 0:
+                group = Group.objects.all()
             else:
-                user = User.objects.get(pk=uk)
-                group = user.groups.all().prefetch_related('permissions')
-            cache.set(cache_key, group, timeout=settings.CACHE_TIMEOUT)
+                group = Group.objects.filter(pk=pk)
+        else:
+            user = User.objects.get(pk=uk)
+            group = user.groups.all()
+        
         serializer = GroupSerializer(group, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+
+#Prośba o dodanie permisji do grupy
+class AddPermissionToGroup(APIView):
     def post(self, request):
-        self.required_permissions = ['add_group']
-        id = self.check_permissions(request)
-        group_name = request.data.get('group_name')
-        
-        # Sprawdź, czy grupa o takiej nazwie już istnieje
-        if Group.objects.filter(name=group_name).exists():
-            return Response({'error': 'Grupa o tej nazwie już istnieje'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Utwórz nową grupę
-        new_group = Group.objects.create(name=group_name)
-        new_group.save()
-
-        return Response({'message': 'Nowa grupa została pomyślnie utworzona'}, status=status.HTTP_201_CREATED)
-
-    def delete(self, request, pk):
-        self.required_permissions = ['delete_group']
-        id = self.check_permissions(request)
-        group = get_object_or_404(Group, pk=pk)
-
-        # Sprawdź, czy grupa nie jest używana przed usunięciem
-        if User.objects.filter(groups=group).exists():
-            return Response({'error': 'Nie można usunąć grupy, która jest przypisana do użytkowników'}, status=status.HTTP_400_BAD_REQUEST)
-
-        group.delete()
-
-        return Response({'message': 'Grupa została pomyślnie usunięta'}, status=status.HTTP_200_OK)
- 
-
-class GroupPermisionsView(PermissionRequiredMixin, APIView):
-    required_permissions = []
-    def get(self, request, pk, perm):
-        self.required_permissions = ['view_permission', 'view_group']
-        id = self.check_permissions(request)
-        try:
-            group = Group.objects.get(pk=pk)
-            
-            perm_bool = perm.lower() == 'true'
-            if perm_bool:
-                permissions = Permission.objects.exclude(id__in=group.permissions.values_list('id', flat=True))
-            else:
-                permissions = group.permissions.all()
-            
-            serializer = PermissionSerializer(permissions, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Group.DoesNotExist:
-            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
-    
-    
-    def post(self, request):
-        self.required_permissions = ['add_permission', 'change_group']
-        id = self.check_permissions(request)
+        requier_perms = ['add_permission', 'change_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         serializer = Permission2Serializer(data=request.data, partial=True)
         if serializer.is_valid():
             group_id = serializer.validated_data.get('group_id')
@@ -521,9 +454,40 @@ class GroupPermisionsView(PermissionRequiredMixin, APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+#Prośba o dodanie nowej permisji do użytkownika
+class AddPermissionToUser(APIView):
+    def post(self, request):
+        requier_perms = ['add_permission', 'change_user']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        serializer = Permission2Serializer(data=request.data, partial=True)
+        if serializer.is_valid():
+            user_id = serializer.validated_data.get('user_id')
+            permission_codename = serializer.validated_data.get('permission_codename')
+            try:
+                user = User.objects.get(pk=user_id)
+                permission = Permission.objects.get(codename=permission_codename)
+
+                user.user_permissions.add(permission)
+
+                return Response({'message': 'Permission added to user successfully'}, status=status.HTTP_200_OK)
+            except User.DoesNotExist:
+                return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+            except Permission.DoesNotExist:
+                return Response({'error': 'Permission not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+#Proba o uuniecie permisji z wybranej grupy
+class RemovePermissionFromGroup(APIView):
     def delete(self, request):
-        self.required_permissions = ['delete_permission', 'change_group']
-        id = self.check_permissions(request)
+        requier_perms = ['delete_permission', 'change_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         serializer = Permission2Serializer(data=request.data, partial=True)
         if serializer.is_valid():
             group_id = serializer.validated_data['group_id']
@@ -543,51 +507,14 @@ class GroupPermisionsView(PermissionRequiredMixin, APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class UserPermissionsView(PermissionRequiredMixin, APIView):
-    required_permissions = []
-    def get(self, request, pk, perm):
-        self.required_permissions = ['view_permission', 'view_user']
-        id = self.check_permissions(request)
-
-        try:
-            user = User.objects.get(pk=pk)
-            
-            perm_bool = perm.lower() == 'true'
-            if perm_bool:
-                permissions = Permission.objects.exclude(id__in=user.user_permissions.values_list('id', flat=True))
-            else:
-                permissions = user.user_permissions.all()
-            
-            serializer = PermissionSerializer(permissions, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except User.DoesNotExist:
-            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    
-    def post(self, request):
-        self.required_permissions = ['add_permission', 'change_user']
-        id = self.check_permissions(request)
-        serializer = Permission2Serializer(data=request.data, partial=True)
-        if serializer.is_valid():
-            user_id = serializer.validated_data.get('user_id')
-            permission_codename = serializer.validated_data.get('permission_codename')
-            try:
-                user = User.objects.get(pk=user_id)
-                permission = Permission.objects.get(codename=permission_codename)
-
-                user.user_permissions.add(permission)
-
-                return Response({'message': 'Permission added to user successfully'}, status=status.HTTP_200_OK)
-            except User.DoesNotExist:
-                return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-            except Permission.DoesNotExist:
-                return Response({'error': 'Permission not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+#Prośba o usunięcie permisji wybranemu użytkownikowi
+class RemovePermissionFromUser(APIView):
     def delete(self, request):
-        self.required_permissions = ['delete_permission', 'change_user']
-        id = self.check_permissions(request)
+        requier_perms = ['delete_permission', 'change_user']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         serializer = Permission2Serializer(data=request.data, partial=True)
         if serializer.is_valid():
             user_id = serializer.validated_data['user_id']
@@ -607,11 +534,14 @@ class UserPermissionsView(PermissionRequiredMixin, APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class PermissionsView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+#prośba o wyświetlenie listy permisji
+class PermissionsView(APIView):
     def get(self, request):
-        self.required_permissions = ['view_permission']
-        id = self.check_permissions(request)
+        requier_perms = ['view_permission']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         permissions = Permission.objects.all()
 
         permissions_list = [
@@ -624,12 +554,14 @@ class PermissionsView(PermissionRequiredMixin, APIView):
         ]
 
         return Response({'permissions': permissions_list}, status=status.HTTP_200_OK)
-
-class UserGroupView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+    
+class UserGroupView(APIView):
     def get(self, request, pk, is_member):
-        self.required_permissions = ['view_group', 'view_user']
-        id = self.check_permissions(request)
+        requier_perms = ['view_group', 'view_user']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         try:
             group_id = int(pk)
         except ValueError:
@@ -641,83 +573,113 @@ class UserGroupView(PermissionRequiredMixin, APIView):
             return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
 
         if is_member.lower() == 'true':
-            users = User.objects.filter(groups=group).prefetch_related('groups')
+            # Zwraca listę użytkowników, którzy należą do grupy
+            users = User.objects.filter(groups=group)
         elif is_member.lower() == 'false':
-            users = User.objects.exclude(groups=group).prefetch_related('groups')
+            # Zwraca listę użytkowników, którzy nie należą do grupy
+            users = User.objects.exclude(groups=group)
         else:
             return Response({'error': 'Invalid value for is_member'}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = UserSerializer(users, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def post(self, request, uk, gk):
-        self.required_permissions = ['change_group']
-        id = self.check_permissions(request)
-        user = get_object_or_404(User, id=uk)
-        group = get_object_or_404(Group, id=gk)
+#prośba o wyświetlenie permisji wybranego użytkownika
+class UserPermissionsView(APIView):
+    def get(self, request, pk, perm):
+        requier_perms = ['view_permission', 'view_user']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
 
-        user.groups.add(group)
-        user.save()
-
-        return Response({"detail": "User added to group successfully"}, status=status.HTTP_200_OK)
-
-    def delete(self, request, uk, gk):
-        self.required_permissions = ['change_group']
-        id = self.check_permissions(request)
-        user = get_object_or_404(User, id=uk)
-        group = get_object_or_404(Group, id=gk)
-
-        user.groups.remove(group)
-        user.save()
-
-        return Response({"detail": "User removed from group successfully"}, status=status.HTTP_200_OK)
-
-
-
-class NotificationsView(PermissionRequiredMixin, APIView):
-    required_permissions = []
-    def put(self, request, pk):
-        self.required_permissions = ['change_notifications']
-        id = self.check_permissions(request)
         try:
-            notification = Notifications.objects.get(pk=pk)
-            if request.user != notification.To:
-                raise exceptions.PermissionDenied('Access denied')
-            notification.status = 2
-            notification.save()
-            return Response({"message": "success"})
-        except Notifications.DoesNotExist:
-            return Response({'error': 'Notification not found'}, status=status.HTTP_404_NOT_FOUND)
-    def post(self, request):
-        self.required_permissions = ['add_notifications']
-        id = self.check_permissions(request)
-        serializer = NotificationsSerializer(data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({'message': 'Success'})
-    
-    def get(self, request):
-        self.required_permissions = ['view_notifications']
-        id = self.check_permissions(request)
+            user = User.objects.get(pk=pk)
+            
+            perm_bool = perm.lower() == 'true'
+            if perm_bool:
+                permissions = Permission.objects.exclude(id__in=user.user_permissions.values_list('id', flat=True))
+            else:
+                permissions = user.user_permissions.all()
+            
+            serializer = UserOrGroupPermissionsSerializer(permissions, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+#Prośba o wywietlenie permiji wybranej grupy
+class GroupPermissionsView(APIView):
+    def get(self, request, pk, perm):
+        requier_perms = ['view_permission', 'view_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        try:
+            group = Group.objects.get(pk=pk)
+            
+            # Dodaj parametr do URL: /group-permissions/<pk>/?all_permissions=true
+            perm_bool = perm.lower() == 'true'
+            if perm_bool:
+                permissions = Permission.objects.exclude(id__in=group.permissions.values_list('id', flat=True))
+            else:
+                permissions = group.permissions.all()
+            
+            serializer = UserOrGroupPermissionsSerializer(permissions, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+
+# Prośba o wyświetlenie powiadomień dla użytkownika 
+# Endpoint wywoływany cyklicznie co 10 sekund przez każdego aktywnego użytkownika
+class NotificationsView(APIView):
+    def get(self,request):
+        # Sekcja 1:
+        # Sprawdź, czy użytkownik ma poprawny token
+        # ista z wymaganymi uprawnieniami
+        requier_perms = ['view_notifications']
+        # przystusuj token do późniejszego sprawdzenia jego autentyczności
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        # Sprawdź czy token jest poprawny i zwróć id użytkownika
+        id = decode_refresh_token(refresh_token)
+        # Na bazie id oraz wymaganych uprawnień sprawdź czy użytkownikowi wolno korzystać z endpointu
+        if not check_perms(id=id, requier_perms=requier_perms):
+            # Jeżeli nie, zwróć wyjątek
+            raise exceptions.APIException('access denied')
+        # Jeżeli tak, wykonaj restę kodu
+        # Sprawdź czy zamówienie jest do odebrania, jeżeli tak, stwórz powiadomienie do kelnera
         create_notifications()
-        notifications = Notifications.objects.filter(To=request.user, status__in=[1, 2]).select_related('To', 'Order').order_by('-time')
-        serializer = NotificationsSerializer(notifications, many=True)
-        return Response(serializer.data)
+        # Sprawdź czy użytkownik posiada nie przeczytane powiadomienia
+        NotificationSet = Notifications.objects.filter(To = id).exclude(status = 2)
+        if not NotificationSet.exists():
+            # Jeżeli nie posiada, zwróć pustą listę
+            return Response([], status=status.HTTP_200_OK)
+        # Jeżeli tak, zwróć wszystkie nie przeczytane powiadomienia
+        serializer = NotificationsSerializer(NotificationSet, many=True)
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
     
-    def patch(self, request):
-        self.required_permissions = ['view_notifications']
-        id = self.check_permissions(request)
+class CheckNotificationsView(APIView):
+    def get(self, request):
+        requier_perms = ['view_notifications']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         if Notifications.objects.filter(To = id).exclude( status = 2).exists():
             noti = True
         else:
             noti = False
         return Response({'notification': noti}, status=status.HTTP_200_OK)
 
-class UserView(PermissionRequiredMixin, APIView):
-    required_permissions = []
+#Prośba o wyświetlenie danych wybranego lub wzystkich użytkowników 
+class UserView(APIView):
     def get(self, request, pk, gk):
-        self.required_permissions = ['view_user']
-        id = self.check_permissions(request)
+        requier_perms = ['view_notifications']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         
         if gk == 0:
             if pk == 0:
@@ -737,9 +699,95 @@ class UserView(PermissionRequiredMixin, APIView):
             serializer = UserDetailsSerializer(queryset, many = False)
         return Response(serializer.data, status=status.HTTP_200_OK)
     
-    def put(self, request, pk):
-        self.required_permissions = ['change_user']
-        id = self.check_permissions(request)
+#Prośba o utworzenie nowego powiadomienia
+class CreateNotification(APIView):
+    def post(self, request):
+        requier_perms = ['add_notifications']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        
+        serializer = NotificationsSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        response_data = {
+            'message': 'Success'
+        }
+        return Response(response_data, status=status.HTTP_200_OK)
+
+#Proba o zmienienie status powiadomienia na przeczytane
+class ViewedNotification(APIView):
+    def put(self,request, pk, format=None):
+        requier_perms = ['change_notifications']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        try:
+            notification = Notifications.objects.get(pk=pk)
+        except Notifications.DoesNotExist:
+            return Response({'error': 'Notification not found'}, status=status.HTTP_404_NOT_FOUND)
+        if  User.objects.get(pk = id) != notification.To:
+            raise exceptions.APIException('access denied')
+
+        notification.status = 2
+        notification.save()
+
+        serializer = NotificationsSerializer(notification)
+        return Response({"message": "success"}, status=status.HTTP_200_OK)
+    
+
+class RemoveUser(APIView):
+    def delete(self, request, pk):
+        requier_perms = ['delete_user']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        user = get_object_or_404(User, pk=pk)
+
+        user.delete()
+
+        return Response({'message': 'Użytkownik został pomyślnie usunięty'}, status=status.HTTP_200_OK)
+
+class AddUserToGroup(APIView):
+    def post(self, request, uk, gk):
+        requier_perms = ['change_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        user = get_object_or_404(User, id=uk)
+        group = get_object_or_404(Group, id=gk)
+
+        user.groups.add(group)
+        user.save()
+
+        return Response({"detail": "User added to group successfully"}, status=status.HTTP_200_OK)
+    
+class RemoveUserFromGroup(APIView):
+    def post(self, request, uk, gk):
+        requier_perms = ['change_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        user = get_object_or_404(User, id=uk)
+        group = get_object_or_404(Group, id=gk)
+
+        user.groups.remove(group)
+        user.save()
+
+        return Response({"detail": "User removed from group successfully"}, status=status.HTTP_200_OK)
+
+class DeactivateUser(APIView):
+    def patch(self, request, pk):
+        requier_perms = ['change_user']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
         user = get_object_or_404(User, pk=pk)
 
         user.is_active = False
@@ -747,10 +795,52 @@ class UserView(PermissionRequiredMixin, APIView):
         user.save()
 
         return Response({'message': 'Użytkownik został pomyślnie dezaktywowany'}, status=status.HTTP_200_OK)
+    
+class AddGroupView(APIView):
+    def post(self, request):
+        requier_perms = ['add_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        group_name = request.data.get('group_name')
+        
+        print(group_name)
+        # Sprawdź, czy grupa o takiej nazwie już istnieje
+        if Group.objects.filter(name=group_name).exists():
+            return Response({'error': 'Grupa o tej nazwie już istnieje'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Utwórz nową grupę
+        new_group = Group.objects.create(name=group_name)
+        new_group.save()
+
+        return Response({'message': 'Nowa grupa została pomyślnie utworzona'}, status=status.HTTP_201_CREATED)
+
+class DeleteGroupView(APIView):
+    def delete(self, request, pk):
+        requier_perms = ['delete_group']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        group = get_object_or_404(Group, pk=pk)
+
+        # Sprawdź, czy grupa nie jest używana przed usunięciem
+        if User.objects.filter(groups=group).exists():
+            return Response({'error': 'Nie można usunąć grupy, która jest przypisana do użytkowników'}, status=status.HTTP_400_BAD_REQUEST)
+
+        group.delete()
+
+        return Response({'message': 'Grupa została pomyślnie usunięta'}, status=status.HTTP_200_OK)
+    
+class EditUserView(APIView):
     def patch(self, request, pk):
-        self.required_permissions = ['change_user']
-        id = self.check_permissions(request)
+        require_perms = ['change_user']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        user_id = decode_refresh_token(refresh_token)
+        
+        if not check_perms(id=user_id, requier_perms=require_perms):
+            raise exceptions.APIException('access denied')
         
         user = get_object_or_404(User, pk=pk)
         serializer = UserDetailsSerializer(user, data=request.data, partial=True)
@@ -760,44 +850,216 @@ class UserView(PermissionRequiredMixin, APIView):
             return Response({'message': 'Dane użytkownika zostały pomyślnie zaktualizowane'}, status=status.HTTP_200_OK)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
+        
+class CreateBill(APIView):
+    def post(self, request, pk):
+        requier_perms = ['add_bills']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if Orders.objects.filter(pk = pk).exists() == False:
+            return Response({'error': 'Nie ma takiego zamówienia'}, status=status.HTTP_404_NOT_FOUND)
+        if OrdersHasDishes.objects.filter(Order = pk).exists() == False:
+            return Response({'error': 'To zamówienie nie ma pozycji'}, status=status.HTTP_404_NOT_FOUND)
+        total_cost = OrdersHasDishes.objects.filter(Order_id=pk).aggregate(Sum('Dish__Cost'))['Dish__Cost__sum']
+        order = Orders.objects.get(Order = pk)
+        waiter = User.objects.get(pk = id)
+        if Bills.objects.filter(order = order).exists():
+            return Response({'error': 'Taki rachunek już istnieje'}, status=status.HTTP_400_BAD_REQUEST)
+        bill = Bills.objects.create(order = order, waiter = waiter, Cost = total_cost)
+        
+        ofbill = Bills.objects.get(order = order)
+        serializer = BillsSerializer(ofbill, many = False)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class DeleteOrderPartView(APIView):
     def delete(self, request, pk):
-        self.required_permissions = ['delete_user']
-        id = self.check_permissions(request)
-        user = get_object_or_404(User, pk=pk)
+        requier_perms = ['delete_ordershasdishes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        Order = get_object_or_404(OrdersHasDishes, pk=pk)
 
-        user.delete()
+        if Order.done == True:
+            return Response({'error': 'Nie można usunąć Zamówienia, które zostało już wykonane!'}, status=status.HTTP_400_BAD_REQUEST)
+        Order.delete()
 
-        return Response({'message': 'Użytkownik został pomyślnie usunięty'}, status=status.HTTP_200_OK)
+        return Response({'message': 'Zamówienie zostało pomyślnie usunięte'}, status=status.HTTP_200_OK)
+    
+class DeleteOrderView(APIView):
+    def delete(self, request, pk):
+        requier_perms = ['delete_orders']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        Order = get_object_or_404(Orders, pk = pk)
 
+        if OrdersHasDishes.objects.filter(Order = pk).exists():
+            return Response({'error': 'Nie można usunąć zamówienia, które posiada pozycje'}, status=status.HTTP_400_BAD_REQUEST)
+        Order.delete()
 
-def create_notifications():
-    today = timezone.now().date()
-    start_of_day = timezone.datetime.combine(today, timezone.datetime.min.time())
-    end_of_day = timezone.datetime.combine(today, timezone.datetime.max.time())
-    orders_to_notify = Orders.objects.filter(
-        Q(time__gte=start_of_day) & Q(time__lte=end_of_day) & Q(ordershasdishes__done=True)
-    ).distinct()
+        return Response({'message': 'Zamówienie zostało pomyślnie usunięte'}, status=status.HTTP_200_OK)
+    
+class AddDishView(APIView):
+    def post(self, request, format=None):
+        requier_perms = ['add_dishes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        serializer = DishesSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            dish = Dishes.objects.get(name = request.data.get('name'))
+            serializer2 = DishesSerializer(dish, many = False)
+            return Response(serializer2.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class AddCategoryView(APIView):
+    def post(self, request, format=None):
+        requier_perms = ['add_categories']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        serializer = CategoriesSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            category = Categories.objects.get(name = request.data.get('name'))
+            serializer2 = DishesSerializer(category, many = False)
+            return Response(serializer2.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class AddDishesProductsView(APIView):
+    def post(self, request, format=None):
+        requier_perms = ['add_dishesproducts']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        serializer = DishesProductsSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class AddDishesVariantsView(APIView):
+    def post(self, request, format=None):
+        requier_perms = ['add_dishesvariants']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        serializer = DishesVariantsSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class DeleteCategoty(APIView):
+    def delete(self, request, pk, format=None):
+        requier_perms = ['delete_categories']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        queryset = Categories.objects.get(pk=pk)
+        queryset.delete()
+        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
 
-    if not orders_to_notify.exists():
-        return
+class DeleteDish(APIView):
+    def delete(self, request, pk, format=None):
+        requier_perms = ['delete_dishes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        queryset = Dishes.objects.get(pk=pk)
+        queryset.delete()
+        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
 
-    notifications_to_create = []
-    for order in orders_to_notify:
-        dishes_count = OrdersHasDishes.objects.filter(Order=order, done=True).count()
-        existing_notifications_count = Notifications.objects.filter(Order=order).count()
-        remaining_notifications = dishes_count - existing_notifications_count
+class DeleteDishesProducts(APIView):
+    def delete(self, request, pk, format=None):
+        requier_perms = ['delete_dishesproducts']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        queryset = DishesProducts.objects.get(pk=pk)
+        queryset.delete()
+        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
 
-        if remaining_notifications > 0:
-            user = User.objects.get(pk=order.waiter_id)
-            notifications_to_create.extend([
-                Notifications(
-                    To=user,
-                    notification='Gotowe',
-                    status=Notifications.Status.WARNING,
-                    Order=order
-                ) for _ in range(remaining_notifications)
-            ])
+class DeleteDishesVariants(APIView):
+    def delete(self, request, pk, format=None):
+        requier_perms = ['delete_dishesvariants']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        queryset = DishesVariants.objects.get(pk=pk)
+        queryset.delete()
+        return Response({'message':'success'},status=status.HTTP_204_NO_CONTENT)
 
-    Notifications.objects.bulk_create(notifications_to_create)
+class UpdateCategoty(APIView):
+    def patch(self, request, pk, format=None):
+        requier_perms = ['change_categories']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        category = Categories.objects.get(pk=pk)
+        serializer = CategoriesSerializer(category, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UpdateDish(APIView):
+    def patch(self, request, pk, format=None):
+        requier_perms = ['change_dishes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        dish = Dishes.objects.get(pk=pk)
+        serializer = DishesSerializer(dish, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UpdateDishesProducts(APIView):
+    def patch(self, request, pk, format=None):
+        requier_perms = ['change_dishesproducts']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        dishes_products = DishesProducts.objects.get(pk=pk)
+        serializer = DishesProductsSerializer(dishes_products, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UpdateDishesVariants(APIView):
+    def patch(self, request, pk, format=None):
+        requier_perms = ['change_dishesvariants']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        dishes_variants = DishesVariants.objects.get(pk=pk)
+        serializer = DishesVariantsSerializer(dishes_variants, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+class CashOutView(APIView):
+    def get(self, request):
+        pass
