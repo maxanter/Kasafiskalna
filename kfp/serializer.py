@@ -1,7 +1,9 @@
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer
 from django.contrib.auth.models import Permission, Group
-from .models import Bills, Categories, Dishes, DishesProducts, DishesVariants, Notifications, Orders, OrdersHasDishes, User
+from .models import (Bills, Categories, Dishes, DishesNotes, 
+                    DishesProducts, DishesStatus, DishesVariants, 
+                    Notifications, Orders, OrdersHasDishes, User)
 
 class UserSerializer(ModelSerializer):
     class Meta:
@@ -84,6 +86,24 @@ class DishesVariantsSerializer(ModelSerializer):
         return super().create(validated_data)
     def update(self, instance, validated_data):
         return super().update(instance, validated_data)
+    
+class DishesStatusSerializer(ModelSerializer):
+    class Meta:
+        model = DishesStatus
+        fields = '__all__'
+    def create(self, validated_data):
+        return super().create(validated_data)
+    def update(self, instance, validated_data):
+        return super().update(instance, validated_data)
+
+class DishesNotesSerializer(ModelSerializer):
+    class Meta:
+        model = DishesNotes
+        fields = '__all__'
+    def create(self, validated_data):
+        return super().create(validated_data)
+    def update(self, instance, validated_data):
+        return super().update(instance, validated_data)
 
 class OrdersDetailsSerializer(ModelSerializer):
     class Meta:
@@ -137,21 +157,10 @@ class PendingOrderDetailsSerializer(serializers.ModelSerializer):
 class OrderStartSerializer(serializers.Serializer):
     table = serializers.CharField(max_length=4)
 
-class OrderCreateSerializer(serializers.Serializer):
-    dishes = serializers.ListField(write_only=True, child=serializers.IntegerField())
-    order = serializers.IntegerField(write_only=True)
-    counts = serializers.ListField(write_only=True, child=serializers.DecimalField(max_digits=8, decimal_places=2))
-    variants = serializers.ListField(write_only=True, child=serializers.IntegerField())
-
 class Permission2Serializer(serializers.Serializer):
     group_id = serializers.IntegerField(required=True)
     user_id = serializers.IntegerField(required=True)
     permission_codename = serializers.CharField(required=True)
-
-class UserOrGroupPermissionsSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Permission
-        fields = ['id', 'name','codename']
 
 class NotificationsSerializer(serializers.ModelSerializer):
     class Meta:

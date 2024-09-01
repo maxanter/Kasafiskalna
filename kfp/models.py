@@ -46,6 +46,11 @@ class Dishes(models.Model):
         decimal_places=2,
         null=True
     )
+    Base_Cost = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True
+    )
     vat = models.DecimalField(
         max_digits=3,
         decimal_places=2,
@@ -71,6 +76,24 @@ class DishesVariants(models.Model):
         default=1.00,
         null=False
     )
+    Cost = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True
+    )
+
+# class DishesStatus(models.Model):
+#     class Status(models.IntegerChoices):
+#         AVAILABLE = 0, 'Dostepny'
+#         NOT_AVAILABLE = 1, 'Niedostepny'
+#         OUT_OF_STOCK = 2, 'Brak w magazynie'
+#     Dish = models.ForeignKey(Dishes, on_delete=models.CASCADE, null=False)
+#     status = models.IntegerField(default=0, choices=Status.choices)
+#     note = models.TextField(max_length=500, null=True)
+
+# class DishesNotes(models.Model):
+#     Dish = models.ForeignKey(Dishes, on_delete=models.CASCADE, null=False)
+#     note = models.TextField(max_length=500, null=True)
 
 class Orders(models.Model):
     Order = models.IntegerField(primary_key=True)
@@ -79,9 +102,21 @@ class Orders(models.Model):
     table = models.CharField(max_length=4, null=True)
 
 class OrdersHasDishes(models.Model):
+    class Done(models.IntegerChoices):
+        NOT_ACTIVE = 0, 'Nie aktywne'
+        NOT_DONE = 1, 'Nie zrobione'
+        DONE = 2, 'Zrobione'
+        PAUSED = 3, 'Wstrzymane'
+
     Order = models.ForeignKey(Orders, on_delete=models.CASCADE, null=False)
     Dish = models.ForeignKey(Dishes, on_delete=models.CASCADE, null=False)
     Variant = models.ForeignKey(DishesVariants, on_delete=models.CASCADE, null=False)
+    variant_count = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=1.00,
+        null=False
+    )
     note = models.TextField(max_length = 500, null=True)
     count = models.DecimalField(
         max_digits=8,
@@ -89,7 +124,7 @@ class OrdersHasDishes(models.Model):
         default=1.00,
         null=False
     )
-    done = models.BooleanField(default=False)
+    done = models.IntegerField(default=0, choices=Done.choices)
 
 class Bills(models.Model):
     Bill = models.IntegerField(primary_key=True)

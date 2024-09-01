@@ -28,6 +28,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
+CACHE_TIMEOUT = 300
 
 # Application definition
 

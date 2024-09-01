@@ -1,44 +1,44 @@
-import jwt, datetime
+import datetime
 from rest_framework import exceptions
+from jwt import JWT
+from jwt.jwk import OctetJWK
 
+jwt_instance = JWT()
+
+# Create key objects
+access_key = OctetJWK(key=b'access_secret', kid='access-key')
+refresh_key = OctetJWK(key=b'refresh_secret', kid='refresh-key')
 
 def create_access_token(id):
-    return jwt.encode({
+    return jwt_instance.encode({
         'user_id': id,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(seconds=30),
-        'iat': datetime.datetime.utcnow()
-    }, 'access_secret', algorithm='HS256')
+        'exp': int((datetime.datetime.utcnow() + datetime.timedelta(minutes=15)).timestamp()),  # timestamp w sekundach
+        'iat': int(datetime.datetime.utcnow().timestamp())  # timestamp w sekundach
+    }, access_key, alg='HS256')
 
 def decode_access_token(token):
     try:
-        payload = jwt.decode(token, 'access_secret', algorithms='HS256')
-
+        payload = jwt_instance.decode(token, access_key, do_verify=True)
+        if payload is None:
+            raise exceptions.AuthenticationFailed('Invalid token')
         return payload['user_id']
-    except:
-        raise exceptions.AuthenticationFailed('unauthenticated')
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        raise exceptions.AuthenticationFailed('Unauthenticated')
 
-#Stwórz token
 def create_refresh_token(id):
-    #Zwróć zaszyfrowany kod zawierający w sobie informacke:
-    # - id uzytkownika
-    # - ilość czasu jak długo token ma być aktywny
-    # - od kiedy token ma być aktywny
-    # - do zaszyfrowania został użyty algorytm Hash 256
-    # - klucz prywatny to 'refresh_secret'
-    return jwt.encode({
+    return jwt_instance.encode({
         'user_id': id,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7),
-        'iat': datetime.datetime.utcnow()
-    }, 'refresh_secret', algorithm='HS256')
+        'exp': int((datetime.datetime.utcnow() + datetime.timedelta(days=7)).timestamp()),  # timestamp w sekundach
+        'iat': int(datetime.datetime.utcnow().timestamp())  # timestamp w sekundach
+    }, refresh_key, alg='HS256')
 
-#Odszyfruj token
 def decode_refresh_token(token):
     try:
-        # Odszyfruj token używając klucza prywatnego
-        payload = jwt.decode(token, 'refresh_secret', algorithms='HS256')
-        #Zwróć id użytkownika
+        payload = jwt_instance.decode(token, refresh_key, do_verify=True)
+        if payload is None:
+            raise exceptions.AuthenticationFailed('Invalid token')
         return payload['user_id']
-    except:
-        #zwróć wyjątek jeżeli token nie jest poprawny
-        raise exceptions.AuthenticationFailed('unauthenticated')
-
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        raise exceptions.AuthenticationFailed('Unauthenticated')

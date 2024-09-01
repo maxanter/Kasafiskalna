@@ -10,42 +10,32 @@ from django.shortcuts import get_object_or_404
 from datetime import datetime, timedelta
 from .authentication import create_access_token, create_refresh_token, decode_refresh_token
 from .autorization import check_perms
-from .serializer import BillsSerializer, CategoriesSerializer, DishesProductsSerializer, DishesSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer, Permission2Serializer, GroupSerializer, UserGroupSerializer
-from .models import Bills, Categories, Dishes, DishesProducts, DishesVariants, Notifications, Orders, OrdersHasDishes, User
+from .serializer import BillsSerializer, CategoriesSerializer, DishesNotesSerializer, DishesProductsSerializer, DishesSerializer, DishesStatusSerializer, DishesVariantsSerializer, NotificationsSerializer, OrderCreateSerializer, OrderStartSerializer, OrdersDetailsSerializer, PendingOrderDetailsSerializer, OrdersHasDishesSerializer, UserDetailsSerializer, UserOrGroupPermissionsSerializer, UserSerializer, PermissionSerializer, Permission2Serializer, GroupSerializer, UserGroupSerializer
+from .models import Bills, Categories, Dishes, DishesNotes, DishesProducts, DishesStatus, DishesVariants, Notifications, Orders, OrdersHasDishes, User
 from django.contrib.auth.models import Group, Permission
 
 #dodatkowe funkcje
 # Stwórz powiadomienia do użytkowników, którzy mogą odebrać zamówienie
 def create_notifications():
-    # Uzyskaj dzisiejszą datę
     today = datetime.now().date()
-    # Oblicz datę od północy do teraz (czyli od początku dnia do obecnej chwili)
     start_of_day = datetime.combine(today, datetime.min.time())
     end_of_day = datetime.combine(today, datetime.max.time())
-    # Filtruj pozycje z zamówienia utworzone dzisiaj, które mają status done jako true
     orders_to_notify = Orders.objects.filter(
         Q(time__gte=start_of_day) & Q(time__lte=end_of_day) & Q(ordershasdishes__done=True)
     )
-    # Sprawdź, czy są zamówienia z ustawionym statusem done
     if not orders_to_notify.exists():
         return  # Zakończ funkcję, jeżeli nie ma zamówień do powiadomienia
     
     notifications_to_create = []
     for order in orders_to_notify:
-        # Sprawdź istniejące powiadomienia dla zamówienia
         existing_notifications_count = Notifications.objects.filter(Order=order).count()
-        # Zlicz wykonane dania w zamówieniu
         dishes_count = OrdersHasDishes.objects.filter(Order=order, done=True).count()
-        # Oblicz pozostałe do utworzenia powiadomienia
         remaining_notifications = dishes_count - existing_notifications_count
 
         if remaining_notifications > 0:
-            # Sprawdź już istniejące zamówienia dla powiadomień
             existing_notification_orders = Notifications.objects.filter(Order=order).values_list('Order_id', flat=True)
             remaining_notification_orders = set(OrdersHasDishes.objects.filter(Order=order, done=True).values_list('Order_id', flat=True))
-            # Pobierz użytkownika (kelnera) powiązanego z zamówieniem
             user = User.objects.get(pk = order.waiter_id)
-            # Dodaj powiadomienia do utworzenia
             notifications_to_create.extend([
                 Notifications(
                     To=user,
@@ -54,7 +44,6 @@ def create_notifications():
                     Order=order
                 ) for _ in range(remaining_notifications) if order.Order not in existing_notification_orders
             ])
-    # Utwórz powiadomienia masowo
     Notifications.objects.bulk_create(notifications_to_create)
 
 
@@ -212,6 +201,71 @@ class DishesVariantsView(APIView):
             queryset = DishesVariants.objects.filter(Dish=dk)
         serializer = DishesVariantsSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+class DishesStatusView(APIView):
+    def get(self, request, pk):
+        requier_perms = ['view_dishesstatus']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if not Dishes.objects.filter(pk=pk).exists():
+            raise exceptions.APIException('Dish does not exist')
+        queryset = DishesStatus.objects.filter(Dish=pk)
+        serializer = DishesStatusSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    def post(self, request, pk):
+        requier_perms = ['add_dishesstatus']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if not Dishes.objects.filter(pk=pk).exists():
+            raise exceptions.APIException('Dish does not exist')
+        serializer = DishesStatusSerializer(data=request.data)
+        return Response(status=status.HTTP_201_CREATED)
+    def delete(self, request, pk):
+        requier_perms = ['delete_dishesstatus']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        queryset = DishesStatus.objects.filter(pk=pk)
+        queryset.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+class DishesNotesView(APIView):
+    def get(self, request, pk):
+        requier_perms = ['view_dishesnotes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if not Dishes.objects.filter(pk=pk).exists():
+            raise exceptions.APIException('Dish does not exist')
+        queryset = DishesNotes.objects.filter(Dish=pk)
+        serializer = DishesNotesSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    def post(self, request, pk):
+        requier_perms = ['add_dishesnotes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        if not Dishes.objects.filter(pk=pk).exists():
+            raise exceptions.APIException('Dish does not exist')
+        serializer = DishesNotesSerializer(data=request.data)
+        return Response(status=status.HTTP_201_CREATED)
+    def delete(self, request, pk):
+        requier_perms = ['delete_dishesnotes']
+        refresh_token = request.headers.get('Authorization').split(' ')[1] if 'Authorization' in request.headers else None
+        id = decode_refresh_token(refresh_token)
+        if not check_perms(id=id, requier_perms=requier_perms):
+            raise exceptions.APIException('access denied')
+        queryset = DishesNotes.objects.filter(pk=pk)
+        queryset.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    
 
 #Prośba o wyświetlenie wszystkich lub wybranego zamówienia
 class OrdersDetailsView(APIView):
